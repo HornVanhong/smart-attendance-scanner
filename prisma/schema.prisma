@@ -1,0 +1,265 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model School {
+  id               String                   @id @default(cuid())
+  name             String
+  code             String                   @unique
+  address          String?
+  phone            String?
+  email            String?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+
+  users            User[]
+  classes          Class[]
+  subjects         Subject[]
+  students         Student[]
+  attendanceSheets AttendanceSheet[]
+  attendanceRecords AttendanceRecord[]
+  symbolConfigs    AttendanceSymbolConfig[]
+  auditLogs        AuditLog[]
+}
+
+model User {
+  id            String             @id @default(cuid())
+  schoolId      String
+  school        School             @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name          String
+  email         String             @unique
+  passwordHash  String
+  role          String             @default("TEACHER") // "ADMIN", "TEACHER", "ATTENDANCE_REVIEWER"
+  avatarUrl     String?
+  isActive      Boolean            @default(true)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  classes       Class[]            @relation("TeacherClasses")
+  uploadedSheets AttendanceSheet[]  @relation("UploadedByUser")
+  verifiedRecords AttendanceRecord[] @relation("VerifiedByUser")
+  corrections   AttendanceCorrection[]
+  auditLogs     AuditLog[]
+
+  @@index([schoolId])
+}
+
+model Class {
+  id           String             @id @default(cuid())
+  schoolId     String
+  school       School             @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name         String
+  gradeLevel   String
+  academicYear String
+  teacherId    String?
+  teacher      User?              @relation("TeacherClasses", fields: [teacherId], references: [id])
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  students     Student[]
+  subjects     ClassSubject[]
+  attendanceSheets AttendanceSheet[]
+  attendanceRecords AttendanceRecord[]
+
+  @@index([schoolId])
+}
+
+model Subject {
+  id           String             @id @default(cuid())
+  schoolId     String
+  school       School             @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name         String
+  code         String
+  periodsCount Int                @default(4)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  classes      ClassSubject[]
+  attendanceSheets AttendanceSheet[]
+  attendanceRecords AttendanceRecord[]
+
+  @@index([schoolId])
+  @@unique([schoolId, code])
+}
+
+model ClassSubject {
+  id        String   @id @default(cuid())
+  classId   String
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  subjectId String
+  subject   Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, subjectId])
+}
+
+model Student {
+  id             String             @id @default(cuid())
+  schoolId       String
+  school         School             @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classId        String
+  class          Class              @relation(fields: [classId], references: [id], onDelete: Cascade)
+  studentNumber  String
+  fullName       String
+  gender         String             @default("M") // "M", "F", "Other"
+  enrollmentDate DateTime           @default(now())
+  status         String             @default("ACTIVE") // "ACTIVE", "INACTIVE", "ARCHIVED"
+  email          String?
+  phone          String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  scanCells      ScanCell[]
+  attendanceRecords AttendanceRecord[]
+
+  @@unique([schoolId, studentNumber])
+  @@index([schoolId, classId])
+}
+
+model AttendanceSheet {
+  id                   String             @id @default(cuid())
+  schoolId             String
+  school               School             @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classId              String?
+  class                Class?             @relation(fields: [classId], references: [id])
+  subjectId            String?
+  subject              Subject?           @relation(fields: [subjectId], references: [id])
+  uploadedById         String
+  uploadedBy           User               @relation("UploadedByUser", fields: [uploadedById], references: [id])
+  imageStorageKey      String
+  originalFileName     String
+  fileSize             Int                @default(0)
+  mimeType             String             @default("image/jpeg")
+  uploadedAt           DateTime           @default(now())
+  processedAt          DateTime?
+  processingStatus     String             @default("PENDING") // "PENDING", "PROCESSING", "COMPLETED", "FAILED"
+  verificationStatus   String             @default("UNVERIFIED") // "UNVERIFIED", "IN_REVIEW", "VERIFIED", "REJECTED"
+  detectedStudentCount Int                @default(0)
+  detectedCellCount    Int                @default(0)
+  highConfidenceCount  Int                @default(0)
+  lowConfidenceCount   Int                @default(0)
+  sheetDate            DateTime?
+  sheetPeriod          Int?               @default(1)
+  metadataJson         String?            // Grid dimensions, rotation, detected dates & subjects
+  errorMessage         String?
+
+  cells                ScanCell[]
+  attendanceRecords    AttendanceRecord[]
+
+  @@index([schoolId])
+  @@index([uploadedById])
+}
+
+model ScanCell {
+  id                 String           @id @default(cuid())
+  attendanceSheetId  String
+  attendanceSheet    AttendanceSheet  @relation(fields: [attendanceSheetId], references: [id], onDelete: Cascade)
+  studentId          String?
+  student            Student?         @relation(fields: [studentId], references: [id])
+  rawStudentName     String?
+  rawStudentNumber   String?
+  rowIndex           Int
+  columnIndex        Int
+  cellBoundingBox    String           // JSON: { "x": 120, "y": 340, "w": 45, "h": 28 }
+  dateString         String?
+  period             Int              @default(1)
+  recognizedText     String?
+  recognizedSymbol   String?          // "✓", "A", "P", "L", "E", "?", etc.
+  interpretedStatus  String           @default("NEEDS_REVIEW") // "PRESENT", "ABSENT", "LATE", "EXCUSED", "NEEDS_REVIEW", "UNMARKED"
+  confidenceScore    Float            @default(0.0)
+  reviewStatus       String           @default("NEEDS_REVIEW") // "NEEDS_REVIEW", "VERIFIED", "CORRECTED", "AUTO_HIGH"
+  isEdited           Boolean          @default(false)
+  cropImageUrl       String?
+
+  corrections        AttendanceCorrection[]
+  attendanceRecords  AttendanceRecord[]
+
+  @@index([attendanceSheetId])
+  @@index([studentId])
+}
+
+model AttendanceRecord {
+  id               String           @id @default(cuid())
+  schoolId         String
+  school           School           @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  studentId        String
+  student          Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  classId          String
+  class            Class            @relation(fields: [classId], references: [id], onDelete: Cascade)
+  subjectId        String
+  subject          Subject          @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  attendanceDate   DateTime
+  period           Int              @default(1)
+  status           String           // "PRESENT", "ABSENT", "LATE", "EXCUSED"
+  originalSymbol   String?
+  sourceSheetId    String?
+  sourceSheet      AttendanceSheet? @relation(fields: [sourceSheetId], references: [id])
+  sourceScanCellId String?
+  sourceScanCell   ScanCell?        @relation(fields: [sourceScanCellId], references: [id])
+  isVerified       Boolean          @default(false)
+  verifiedById     String?
+  verifiedBy       User?            @relation("VerifiedByUser", fields: [verifiedById], references: [id])
+  verifiedAt       DateTime?
+  remarks          String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  corrections      AttendanceCorrection[]
+
+  @@unique([studentId, attendanceDate, subjectId, period, classId], name: "unique_student_attendance")
+  @@index([schoolId, attendanceDate])
+  @@index([classId, attendanceDate])
+  @@index([studentId])
+}
+
+model AttendanceCorrection {
+  id                 String            @id @default(cuid())
+  attendanceRecordId String?
+  attendanceRecord   AttendanceRecord? @relation(fields: [attendanceRecordId], references: [id], onDelete: Cascade)
+  scanCellId         String?
+  scanCell           ScanCell?         @relation(fields: [scanCellId], references: [id], onDelete: Cascade)
+  changedById        String
+  changedBy          User              @relation(fields: [changedById], references: [id])
+  previousStatus     String
+  newStatus          String
+  reason             String?
+  createdAt          DateTime          @default(now())
+
+  @@index([scanCellId])
+  @@index([attendanceRecordId])
+}
+
+model AttendanceSymbolConfig {
+  id           String   @id @default(cuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  symbol       String
+  mappedStatus String   // "PRESENT", "ABSENT", "LATE", "EXCUSED", "NEEDS_REVIEW"
+  description  String?
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([schoolId, symbol])
+  @@index([schoolId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  schoolId   String
+  school     School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String   // "SCAN_UPLOAD", "SCAN_PROCESSED", "ATTENDANCE_VERIFIED", "RECORD_UPDATED", etc.
+  entityType String
+  entityId   String?
+  details    String?  // JSON string
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([schoolId, createdAt])
+}

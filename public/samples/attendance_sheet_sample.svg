@@ -1,0 +1,265 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 850" width="1100" height="850">
+  <defs>
+    <!-- Paper texture / subtle gradient -->
+    <linearGradient id="paperBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fdfbf7"/>
+      <stop offset="50%" stop-color="#faf7f2"/>
+      <stop offset="100%" stop-color="#f5f0e8"/>
+    </linearGradient>
+    
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="2" dy="4" stdDeviation="4" flood-opacity="0.12"/>
+    </filter>
+
+    <style>
+      .school-title { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 24px; font-weight: 800; fill: #0f172a; letter-spacing: 1.5px; }
+      .sheet-subtitle { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 13px; font-weight: 600; fill: #475569; letter-spacing: 0.5px; }
+      .meta-label { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11px; font-weight: 700; fill: #64748b; text-transform: uppercase; }
+      .meta-val { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 12px; font-weight: 600; fill: #0f172a; }
+      .th-text { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11px; font-weight: 700; fill: #1e293b; text-anchor: middle; }
+      .td-text { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 12px; font-weight: 500; fill: #1e293b; }
+      .td-center { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 12px; font-weight: 500; fill: #1e293b; text-anchor: middle; }
+      .handwritten-check { font-family: 'Comic Sans MS', 'Brush Script MT', cursive, sans-serif; font-size: 26px; font-weight: 900; fill: #1d4ed8; text-anchor: middle; }
+      .handwritten-absent { font-family: 'Comic Sans MS', 'Arial Rounded MT Bold', sans-serif; font-size: 21px; font-weight: 900; fill: #b91c1c; text-anchor: middle; }
+      .handwritten-late { font-family: 'Comic Sans MS', sans-serif; font-size: 21px; font-weight: 900; fill: #d97706; text-anchor: middle; }
+      .handwritten-excused { font-family: 'Comic Sans MS', sans-serif; font-size: 21px; font-weight: 900; fill: #2563eb; text-anchor: middle; }
+      .handwritten-smudge { font-family: 'Comic Sans MS', sans-serif; font-size: 22px; font-weight: 900; fill: #475569; text-anchor: middle; }
+      .grid-border { stroke: #334155; stroke-width: 1.5; fill: none; }
+      .grid-line { stroke: #cbd5e1; stroke-width: 1; }
+      .grid-subline { stroke: #e2e8f0; stroke-width: 0.75; }
+    </style>
+  </defs>
+
+  <!-- Sheet Background with realistic paper margin -->
+  <rect x="15" y="15" width="1070" height="820" rx="6" fill="url(#paperBg)" filter="url(#shadow)" stroke="#e2e8f0" stroke-width="1.5"/>
+
+  <!-- Official Header Area -->
+  <g transform="translate(45, 45)">
+    <!-- School Crest Emblem Graphic -->
+    <circle cx="28" cy="28" r="26" fill="#0f172a" />
+    <path d="M16 34 L28 12 L40 34 L28 29 Z" fill="#38bdf8"/>
+    <circle cx="28" cy="22" r="3.5" fill="#f8fafc"/>
+
+    <text x="70" y="24" class="school-title">OAKRIDGE ACADEMY</text>
+    <text x="70" y="42" class="sheet-subtitle">OFFICIAL CLASSROOM ATTENDANCE ROSTER • ACADEMIC YEAR 2024–2025</text>
+    
+    <!-- Meta Info Box -->
+    <rect x="0" y="58" width="1010" height="42" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+    
+    <text x="16" y="74" class="meta-label">Class / Section</text>
+    <text x="16" y="90" class="meta-val">Grade 10 - Section A</text>
+
+    <line x1="190" y1="62" x2="190" y2="96" stroke="#e2e8f0"/>
+    <text x="206" y="74" class="meta-label">Subject &amp; Code</text>
+    <text x="206" y="90" class="meta-val">Mathematics (Algebra II) • MATH-101</text>
+
+    <line x1="470" y1="62" x2="470" y2="96" stroke="#e2e8f0"/>
+    <text x="486" y="74" class="meta-label">Date</text>
+    <text x="486" y="90" class="meta-val">Monday, Oct 14, 2024</text>
+
+    <line x1="660" y1="62" x2="660" y2="96" stroke="#e2e8f0"/>
+    <text x="676" y="74" class="meta-label">Assigned Teacher</text>
+    <text x="676" y="90" class="meta-val">Prof. Michael Chang</text>
+
+    <line x1="860" y1="62" x2="860" y2="96" stroke="#e2e8f0"/>
+    <text x="876" y="74" class="meta-label">Sheet Status</text>
+    <text x="876" y="90" class="meta-val" fill="#0284c7">Pending Verification</text>
+  </g>
+
+  <!-- ATTENDANCE TABLE GRID -->
+  <!-- Origin at (45, 160), width 1010, height 560 -->
+  <g transform="translate(45, 160)">
+    <!-- Outer Table Frame -->
+    <rect x="0" y="0" width="1010" height="560" fill="#ffffff" class="grid-border"/>
+
+    <!-- Table Header Background -->
+    <rect x="0" y="0" width="1010" height="44" fill="#f1f5f9"/>
+
+    <!-- Header Grid Vertical Dividers -->
+    <!-- Columns: No(50), Student ID(120), Student Name(280), Gender(70), Period 1(160), Period 2(160), Period 3(170) -->
+    <line x1="50" y1="0" x2="50" y2="560" class="grid-line"/>
+    <line x1="170" y1="0" x2="170" y2="560" class="grid-line"/>
+    <line x1="450" y1="0" x2="450" y2="560" class="grid-line"/>
+    <line x1="520" y1="0" x2="520" y2="560" class="grid-line"/>
+    <line x1="680" y1="0" x2="680" y2="560" class="grid-line"/>
+    <line x1="840" y1="0" x2="840" y2="560" class="grid-line"/>
+
+    <!-- Header Text Labels -->
+    <text x="25" y="27" class="th-text">NO.</text>
+    <text x="110" y="27" class="th-text">STUDENT ID</text>
+    <text x="310" y="27" class="th-text" text-anchor="start">STUDENT FULL NAME</text>
+    <text x="485" y="27" class="th-text">SEX</text>
+    
+    <text x="600" y="20" class="th-text">PERIOD 1</text>
+    <text x="600" y="36" class="meta-label" text-anchor="middle" font-size="9">08:30 – 09:15</text>
+    
+    <text x="760" y="20" class="th-text">PERIOD 2</text>
+    <text x="760" y="36" class="meta-label" text-anchor="middle" font-size="9">09:20 – 10:05</text>
+    
+    <text x="925" y="20" class="th-text">PERIOD 3</text>
+    <text x="925" y="36" class="meta-label" text-anchor="middle" font-size="9">10:15 – 11:00</text>
+
+    <line x1="0" y1="44" x2="1010" y2="44" class="grid-border"/>
+
+    <!-- 10 Student Rows (each row height = 51.6px) -->
+    
+    <!-- Row 1: Alexander Wright -->
+    <g transform="translate(0, 44)">
+      <rect x="0" y="0" width="1010" height="51.6" fill="#f8fafc" opacity="0.4"/>
+      <text x="25" y="32" class="td-center">1</text>
+      <text x="110" y="32" class="td-center" font-family="monospace" font-weight="600">STU-1001</text>
+      <text x="185" y="32" class="td-text">Alexander Wright</text>
+      <text x="485" y="32" class="td-center">M</text>
+      <!-- Handwritten marks (P1: ✓, P2: ✓, P3: ✓) -->
+      <text x="600" y="36" class="handwritten-check">✓</text>
+      <text x="760" y="36" class="handwritten-check">✓</text>
+      <text x="925" y="36" class="handwritten-check">✓</text>
+      <line x1="0" y1="51.6" x2="1010" y2="51.6" class="grid-line"/>
+    </g>
+
+    <!-- Row 2: Beatrice Gomez -->
+    <g transform="translate(0, 95.6)">
+      <text x="25" y="32" class="td-center">2</text>
+      <text x="110" y="32" class="td-center" font-family="monospace" font-weight="600">STU-1002</text>
+      <text x="185" y="32" class="td-text">Beatrice Gomez</text>
+      <text x="485" y="32" class="td-center">F</text>
+      <!-- Handwritten marks (P1: ✓, P2: ✓, P3: ✓) -->
+      <text x="600" y="36" class="handwritten-check">✓</text>
+      <text x="760" y="36" class="handwritten-check">✓</text>
+      <text x="925" y="36" class="handwritten-check">✓</text>
+      <line x1="0" y1="51.6" x2="1010" y2="51.6" class="grid-line"/>
+    </g>
+
+    <!-- Row 3: Charles Vance -->
+    <g transform="translate(0, 147.2)">
+      <rect x="0" y="0" width="1010" height="51.6" fill="#f8fafc" opacity="0.4"/>
+      <text x="25" y="32" class="td-center">3</text>
+      <text x="110" y="32" class="td-center" font-family="monospace" font-weight="600">STU-1003</text>
+      <text x="185" y="32" class="td-text">Charles Vance</text>
+      <text x="485" y="32" class="td-center">M</text>
+      <!-- Handwritten marks (P1: A, P2: A, P3: A) -->
+      <text x="600" y="35" class="handwritten-absent">A</text>
+      <text x="760" y="35" class="handwritten-absent">A</text>
+      <text x="925" y="35" class="handwritten-absent">A</text>
+      <line x1="0" y1="51.6" x2="1010" y2="51.6" class="grid-line"/>
+    </g>
+
+    <!-- Row 4: Diana Patel -->
+    <g transform="translate(0, 198.8)">
+      <text x="25" y="32" class="td-center">4</text>
+      <text x="110" y="32" class="td-center" font-family="monospace" font-weight="600">STU-1004</text>
+      <text x="185" y="32" class="td-text">Diana Patel</text>
+      <text x="485" y="32" class="td-center">F</text>
+      <!-- Handwritten marks (P1: L, P2: ✓, P3: ✓) -->
+      <text x="600" y="35" class="handwritten-late">L</text>
+      <text x="760" y="36" class="handwritten-check">✓</text>
+      <text x="925" y="36" class="handwritten-check">✓</text>
+      <line x1="0" y1="51.6" x2="1010" y2="51.6" class="grid-line"/>
+    </g>
+
+    <!-- Row 5: Ethan Morales -->
+    <g transform="translate(0, 250.4)">
+      <rect x="0" y="0" width="1010" height="51.6" fill="#f8fafc" opacity="0.4"/>
+      <text x="25" y="32" class="td-center">5</text>
+      <text x="110" y="32" class="td-center" font-family="monospace" font-weight="600">STU-1005</text>
+      <text x="185" y="32" class="td-text">Ethan Morales</text>
+      <text x="485" y="32" class="td-center">M</text>
+      <!-- Handwritten marks (P1: E, P2: E, P3: E) -->
+      <text x="600" y="35" class="handwritten-excused">E</text>
+      <text x="760" y="35" class="handwritten-excused">E</text>
+      <text x="925" y="35" class="handwritten-excused">E</text>
+      <line x1="0" y1="51.6" x2="1010" y2="51.6" class="grid-line"/>
+    </g>
+
+    <!-- Row 6: Fiona Chen -->
+    <g transform="translate(0, 302)">
+      <text x="25" y="32" class="td-center">6</text>
+      <text x="110" y="32" class="td-center" font-family="monospace" font-weight="600">STU-1006</text>
+      <text x="185" y="32" class="td-text">Fiona Chen</text>
+      <text x="485" y="32" class="td-center">F</text>
+      <!-- Handwritten marks (P1: ✓, P2: ?, P3: ✓) -> Cell P2 has ambiguous smudge for testing! -->
+      <text x="600" y="36" class="handwritten-check">✓</text>
+      <text x="760" y="35" class="handwritten-smudge">?</text>
+      <text x="925" y="36" class="handwritten-check">✓</text>
+      <line x1="0" y1="51.6" x2="1010" y2="51.6" class="grid-line"/>
+    </g>
+
+    <!-- Row 7: Gabriel Silva -->
+    <g transform="translate(0, 353.6)">
+      <rect x="0" y="0" width="1010" height="51.6" fill="#f8fafc" opacity="0.4"/>
+      <text x="25" y="32" class="td-center">7</text>
+      <text x="110" y="32" class="td-center" font-family="monospace" font-weight="600">STU-1007</text>
+      <text x="185" y="32" class="td-text">Gabriel Silva</text>
+      <text x="485" y="32" class="td-center">M</text>
+      <!-- Handwritten marks (P1: ✓, P2: ✓, P3: ✓) -->
+      <text x="600" y="36" class="handwritten-check">✓</text>
+      <text x="760" y="36" class="handwritten-check">✓</text>
+      <text x="925" y="36" class="handwritten-check">✓</text>
+      <line x1="0" y1="51.6" x2="1010" y2="51.6" class="grid-line"/>
+    </g>
+
+    <!-- Row 8: Hannah Abbott -->
+    <g transform="translate(0, 405.2)">
+      <text x="25" y="32" class="td-center">8</text>
+      <text x="110" y="32" class="td-center" font-family="monospace" font-weight="600">STU-1008</text>
+      <text x="185" y="32" class="td-text">Hannah Abbott</text>
+      <text x="485" y="32" class="td-center">F</text>
+      <!-- Handwritten marks (P1: ✓, P2: ✓, P3: ✓) -->
+      <text x="600" y="36" class="handwritten-check">✓</text>
+      <text x="760" y="36" class="handwritten-check">✓</text>
+      <text x="925" y="36" class="handwritten-check">✓</text>
+      <line x1="0" y1="51.6" x2="1010" y2="51.6" class="grid-line"/>
+    </g>
+
+    <!-- Row 9: Ian Malcolm -->
+    <g transform="translate(0, 456.8)">
+      <rect x="0" y="0" width="1010" height="51.6" fill="#f8fafc" opacity="0.4"/>
+      <text x="25" y="32" class="td-center">9</text>
+      <text x="110" y="32" class="td-center" font-family="monospace" font-weight="600">STU-1009</text>
+      <text x="185" y="32" class="td-text">Ian Malcolm</text>
+      <text x="485" y="32" class="td-center">M</text>
+      <!-- Handwritten marks (P1: A, P2: A, P3: A) -->
+      <text x="600" y="35" class="handwritten-absent">A</text>
+      <text x="760" y="35" class="handwritten-absent">A</text>
+      <text x="925" y="35" class="handwritten-absent">A</text>
+      <line x1="0" y1="51.6" x2="1010" y2="51.6" class="grid-line"/>
+    </g>
+
+    <!-- Row 10: Julia Roberts -->
+    <g transform="translate(0, 508.4)">
+      <text x="25" y="32" class="td-center">10</text>
+      <text x="110" y="32" class="td-center" font-family="monospace" font-weight="600">STU-1010</text>
+      <text x="185" y="32" class="td-text">Julia Roberts</text>
+      <text x="485" y="32" class="td-center">F</text>
+      <!-- Handwritten marks (P1: ✓, P2: ✓, P3: ✓) -->
+      <text x="600" y="36" class="handwritten-check">✓</text>
+      <text x="760" y="36" class="handwritten-check">✓</text>
+      <text x="925" y="36" class="handwritten-check">✓</text>
+    </g>
+  </g>
+
+  <!-- Footer Legend & Verification Signature Area -->
+  <g transform="translate(45, 735)">
+    <!-- Legend Box -->
+    <rect x="0" y="0" width="550" height="48" rx="4" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="14" y="18" class="meta-label">Symbol Key</text>
+    <text x="14" y="36" class="td-text" font-size="11">
+      <tspan font-weight="bold" fill="#1d4ed8">✓ / P</tspan> : Present &nbsp;&nbsp;|&nbsp;&nbsp; 
+      <tspan font-weight="bold" fill="#b91c1c">A</tspan> : Absent &nbsp;&nbsp;|&nbsp;&nbsp; 
+      <tspan font-weight="bold" fill="#d97706">L</tspan> : Late &nbsp;&nbsp;|&nbsp;&nbsp; 
+      <tspan font-weight="bold" fill="#2563eb">E</tspan> : Excused &nbsp;&nbsp;|&nbsp;&nbsp; 
+      <tspan font-weight="bold" fill="#475569">?</tspan> : Review Needed
+    </text>
+
+    <!-- Signature and Date Box -->
+    <g transform="translate(620, 0)">
+      <line x1="0" y1="34" x2="210" y2="34" stroke="#475569" stroke-width="1.2"/>
+      <text x="105" y="46" class="meta-label" text-anchor="middle">Teacher Signature</text>
+      <text x="100" y="26" font-family="'Brush Script MT', cursive, sans-serif" font-size="20" fill="#0f172a">M. Chang</text>
+
+      <line x1="240" y1="34" x2="390" y2="34" stroke="#475569" stroke-width="1.2"/>
+      <text x="315" y="46" class="meta-label" text-anchor="middle">Verification Date</text>
+      <text x="315" y="28" class="td-center" font-size="11">Oct 14, 2024</text>
+    </g>
+  </g>
+</svg>
