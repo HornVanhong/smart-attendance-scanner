@@ -113,11 +113,11 @@ export class ImagePreprocessingService {
     fileSizeBytes: number,
     maxSizeMb: number = 15
   ): { valid: boolean; error?: string } {
-    const allowed = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+    const allowed = ["image/jpeg", "image/jpg", "image/png", "image/webp", "application/pdf"];
     if (!allowed.includes(mimeType.toLowerCase())) {
       return {
         valid: false,
-        error: `Unsupported image format: ${mimeType}. Allowed formats: JPG, PNG, WebP.`,
+        error: `Unsupported format: ${mimeType}. Allowed formats: JPG, PNG, WebP, PDF.`,
       };
     }
 

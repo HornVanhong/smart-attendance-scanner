@@ -18,16 +18,23 @@ export async function GET(req: NextRequest) {
     include: {
       student: { select: { fullName: true, studentNumber: true } },
       class: { select: { name: true } },
+      subject: { select: { id: true, name: true, code: true } },
     },
   });
 
   const students = await prisma.student.findMany({
     where: classId && classId !== "ALL" ? { classId } : {},
     include: { class: { select: { name: true } } },
+    orderBy: { studentNumber: "asc" },
   });
 
   const classes = await prisma.class.findMany({
     include: { _count: { select: { students: true } } },
+    orderBy: { name: "asc" },
+  });
+
+  const allSubjects = await prisma.subject.findMany({
+    orderBy: { name: "asc" },
   });
 
   const sheets = await prisma.attendanceSheet.findMany();
@@ -83,7 +90,7 @@ export async function GET(req: NextRequest) {
     late: counts.total > 0 ? Math.round((counts.late / counts.total) * 100) : 0,
   }));
 
-  // Student Attendance Statistics
+  // Student Attendance Statistics with Per-Subject Matrix
   const studentStats = students.map((st) => {
     const stRecs = records.filter((r) => r.studentId === st.id);
     const total = stRecs.length;
@@ -92,6 +99,18 @@ export async function GET(req: NextRequest) {
     const excused = stRecs.filter((r) => r.status === "EXCUSED").length;
     const late = stRecs.filter((r) => r.status === "LATE").length;
     const rate = total > 0 ? Math.round(((present + late) / total) * 100) : 100;
+
+    // Per-subject breakdown for STUDENT_ATTENDANT_FORM
+    const subjectMatrix: Record<string, { absent: number; permission: number; present: number; total: number }> = {};
+    allSubjects.forEach((sub) => {
+      const subRecs = stRecs.filter((r) => r.subjectId === sub.id);
+      subjectMatrix[sub.id] = {
+        absent: subRecs.filter((r) => r.status === "ABSENT").length,
+        permission: subRecs.filter((r) => r.status === "EXCUSED").length,
+        present: subRecs.filter((r) => r.status === "PRESENT").length,
+        total: subRecs.length,
+      };
+    });
 
     return {
       studentId: st.id,
@@ -106,6 +125,7 @@ export async function GET(req: NextRequest) {
       lateCount: late,
       rate,
       isAlert: total > 0 && rate < 80,
+      subjectMatrix,
     };
   });
 
@@ -124,6 +144,11 @@ export async function GET(req: NextRequest) {
       scansCount: sheets.length,
       scansRequiringReview: sheets.filter((s) => s.verificationStatus === "IN_REVIEW").length,
     },
+    allSubjects: allSubjects.map((s) => ({
+      id: s.id,
+      name: s.name,
+      code: s.code,
+    })),
     classBreakdown,
     trends,
     studentStats,

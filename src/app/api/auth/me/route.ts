@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureSystemInitialized } from "@/lib/db-init";
 
+export const dynamic = "force-dynamic";
+
 let currentUserId = "usr_teacher";
 
 export async function GET() {

@@ -11,8 +11,11 @@ describe("ImagePreprocessingService", () => {
     const validJpg = ImagePreprocessingService.validateImage("image/jpeg", 2 * 1024 * 1024, 15);
     expect(validJpg.valid).toBe(true);
 
-    const invalidPdf = ImagePreprocessingService.validateImage("application/pdf", 1024, 15);
-    expect(invalidPdf.valid).toBe(false);
+    const validPdf = ImagePreprocessingService.validateImage("application/pdf", 1024, 15);
+    expect(validPdf.valid).toBe(true);
+
+    const invalidType = ImagePreprocessingService.validateImage("application/zip", 1024, 15);
+    expect(invalidType.valid).toBe(false);
 
     const tooLarge = ImagePreprocessingService.validateImage("image/png", 20 * 1024 * 1024, 15);
     expect(tooLarge.valid).toBe(false);

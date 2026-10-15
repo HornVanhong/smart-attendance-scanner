@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import {
   BarChart3,
@@ -46,6 +46,7 @@ export default function ReportsPage() {
   const [selectedClass, setSelectedClass] = useState("ALL");
   const [selectedSubject, setSelectedSubject] = useState("ALL");
   const [searchStudent, setSearchStudent] = useState("");
+  const [viewMode, setViewMode] = useState<"MATRIX" | "OVERVIEW">("MATRIX");
   const [loading, setLoading] = useState(true);
 
   // Individual student modal
@@ -82,6 +83,9 @@ export default function ReportsPage() {
       .then((r) => r.json())
       .then((repData) => {
         setData(repData);
+        if (repData.allSubjects && repData.allSubjects.length > 0) {
+          setSubjects(repData.allSubjects);
+        }
         setLoading(false);
       })
       .catch((e) => {
@@ -142,8 +146,259 @@ export default function ReportsPage() {
       });
   };
 
+  const displaySubjects = useMemo(() => {
+    const list = subjects.length > 0 ? subjects : (data?.allSubjects || []);
+    if (selectedSubject !== "ALL") {
+      const match = list.filter((s: any) => s.id === selectedSubject);
+      if (match.length > 0) return match;
+    }
+    return list;
+  }, [subjects, data?.allSubjects, selectedSubject]);
+
   // ==========================================
-  // 1. BEAUTIFUL PROFESSIONAL PDF EXPORT
+  // STUDENT_ATTENDANT_FORM MATRIX EXCEL EXPORT
+  // ==========================================
+  const handleExportMatrixExcel = () => {
+    if (!data || (data.studentStats || []).length === 0) {
+      alert("No attendance records available to export.");
+      return;
+    }
+
+    const selectedClassName = classes.find((c: any) => c.id === selectedClass)?.name || "Group A1 (All Classes)";
+    const exportDate = new Date().toISOString().split("T")[0];
+    const targetSubjects = displaySubjects.length > 0 ? displaySubjects : (data.allSubjects || []);
+
+    const row1 = ["STUDENT_ATTENDANT_FORM"];
+    const row2 = [
+      `Academic Year: 2025-2026`,
+      `Department: Computer Studies`,
+      `Major: Computer Science`,
+      `Year: 1`,
+      `Group / Class: ${selectedClassName}`,
+      `Export Date: ${exportDate}`,
+    ];
+    const row3: string[] = [];
+
+    // Header Level 1
+    const row4: string[] = ["No.", "Name of Student", "ID", "Sex"];
+    // Header Level 2
+    const row5: string[] = ["", "", "", ""];
+
+    targetSubjects.forEach((sub: any) => {
+      row4.push(sub.name || "Subject", "");
+      row5.push("Absent", "Permission");
+    });
+
+    row4.push("Total Absent", "Total Permission");
+    row5.push("", "");
+
+    const rows: any[][] = [row1, row2, row3, row4, row5];
+
+    let totalAllAbsent = 0;
+    let totalAllPermission = 0;
+    const subjectTotals: Record<string, { absent: number; permission: number }> = {};
+    targetSubjects.forEach((sub: any) => {
+      subjectTotals[sub.id] = { absent: 0, permission: 0 };
+    });
+
+    filteredStudentStats.forEach((s: any, idx: number) => {
+      const studentRow: any[] = [
+        idx + 1,
+        s.studentName,
+        s.studentNumber,
+        s.gender || "M",
+      ];
+
+      let studentTotalAbsent = 0;
+      let studentTotalPermission = 0;
+
+      targetSubjects.forEach((sub: any) => {
+        const matrix = s.subjectMatrix?.[sub.id] || { absent: 0, permission: 0 };
+        const ab = matrix.absent || 0;
+        const pe = matrix.permission || 0;
+        studentRow.push(ab);
+        studentRow.push(pe);
+        studentTotalAbsent += ab;
+        studentTotalPermission += pe;
+        if (subjectTotals[sub.id]) {
+          subjectTotals[sub.id].absent += ab;
+          subjectTotals[sub.id].permission += pe;
+        }
+      });
+
+      studentRow.push(studentTotalAbsent);
+      studentRow.push(studentTotalPermission);
+      totalAllAbsent += studentTotalAbsent;
+      totalAllPermission += studentTotalPermission;
+
+      rows.push(studentRow);
+    });
+
+    // Summary Total Row
+    const summaryRow: any[] = ["TOTAL", "", "", ""];
+    targetSubjects.forEach((sub: any) => {
+      summaryRow.push(subjectTotals[sub.id]?.absent || 0);
+      summaryRow.push(subjectTotals[sub.id]?.permission || 0);
+    });
+    summaryRow.push(totalAllAbsent);
+    summaryRow.push(totalAllPermission);
+    rows.push(summaryRow);
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+
+    // Setup Merges
+    const totalCols = 4 + targetSubjects.length * 2 + 2;
+    const merges: any[] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } },
+      { s: { r: 3, c: 0 }, e: { r: 4, c: 0 } },
+      { s: { r: 3, c: 1 }, e: { r: 4, c: 1 } },
+      { s: { r: 3, c: 2 }, e: { r: 4, c: 2 } },
+      { s: { r: 3, c: 3 }, e: { r: 4, c: 3 } },
+    ];
+
+    let colPointer = 4;
+    targetSubjects.forEach(() => {
+      merges.push({ s: { r: 3, c: colPointer }, e: { r: 3, c: colPointer + 1 } });
+      colPointer += 2;
+    });
+
+    merges.push({ s: { r: 3, c: colPointer }, e: { r: 4, c: colPointer } });
+    merges.push({ s: { r: 3, c: colPointer + 1 }, e: { r: 4, c: colPointer + 1 } });
+    merges.push({ s: { r: rows.length - 1, c: 0 }, e: { r: rows.length - 1, c: 3 } });
+
+    ws["!merges"] = merges;
+
+    // Set Column Widths
+    const cols: any[] = [
+      { wch: 6 },
+      { wch: 28 },
+      { wch: 16 },
+      { wch: 8 },
+    ];
+    targetSubjects.forEach(() => {
+      cols.push({ wch: 12 }, { wch: 14 });
+    });
+    cols.push({ wch: 14 }, { wch: 16 });
+    ws["!cols"] = cols;
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "STUDENT_ATTENDANT_FORM");
+    XLSX.writeFile(wb, `STUDENT_ATTENDANT_FORM_${exportDate}.xlsx`);
+  };
+
+  // ==========================================
+  // STUDENT_ATTENDANT_FORM MATRIX PDF EXPORT
+  // ==========================================
+  const handleExportMatrixPDF = () => {
+    if (!data || (data.studentStats || []).length === 0) {
+      alert("No attendance records available to export.");
+      return;
+    }
+
+    const doc = new jsPDF({
+      orientation: "landscape",
+      unit: "mm",
+      format: "a4",
+    });
+
+    const selectedClassName = classes.find((c: any) => c.id === selectedClass)?.name || "All Classes (Group A1)";
+    const exportDateStr = new Date().toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+
+    const targetSubjects = displaySubjects.length > 0 ? displaySubjects : (data.allSubjects || []);
+
+    // Header Title Bar
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, 297, 24, "F");
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text("STUDENT ATTENDANCE FORM", 14, 11);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(203, 213, 225);
+    doc.text(`Academic Year: 2025-2026   |   Department: Computer Studies   |   Class / Group: ${selectedClassName}   |   Date: ${exportDateStr}`, 14, 18);
+
+    // Multi-tier head rows
+    const headRow1: any[] = [
+      { content: "No.", rowSpan: 2, styles: { halign: "center", valign: "middle" } },
+      { content: "Name of Student", rowSpan: 2, styles: { halign: "left", valign: "middle" } },
+      { content: "ID", rowSpan: 2, styles: { halign: "center", valign: "middle" } },
+      { content: "Sex", rowSpan: 2, styles: { halign: "center", valign: "middle" } },
+    ];
+    const headRow2: any[] = [];
+
+    targetSubjects.forEach((sub: any) => {
+      headRow1.push({
+        content: sub.name,
+        colSpan: 2,
+        styles: { halign: "center", fillColor: [30, 41, 59], textColor: [255, 255, 255] },
+      });
+      headRow2.push(
+        { content: "Absent", styles: { halign: "center", textColor: [239, 68, 68] } },
+        { content: "Permission", styles: { halign: "center", textColor: [59, 130, 246] } }
+      );
+    });
+
+    headRow1.push(
+      { content: "Total Absent", rowSpan: 2, styles: { halign: "center", valign: "middle", textColor: [239, 68, 68] } },
+      { content: "Total Permission", rowSpan: 2, styles: { halign: "center", valign: "middle", textColor: [59, 130, 246] } }
+    );
+
+    const bodyRows = filteredStudentStats.map((s: any, idx: number) => {
+      const row: any[] = [
+        idx + 1,
+        s.studentName,
+        s.studentNumber,
+        s.gender || "M",
+      ];
+      let tA = 0;
+      let tP = 0;
+      targetSubjects.forEach((sub: any) => {
+        const matrix = s.subjectMatrix?.[sub.id] || { absent: 0, permission: 0 };
+        const ab = matrix.absent || 0;
+        const pe = matrix.permission || 0;
+        row.push(ab);
+        row.push(pe);
+        tA += ab;
+        tP += pe;
+      });
+      row.push(tA);
+      row.push(tP);
+      return row;
+    });
+
+    autoTable(doc, {
+      startY: 28,
+      head: [headRow1, headRow2],
+      body: bodyRows,
+      theme: "grid",
+      headStyles: {
+        fillColor: [30, 41, 59],
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+        fontSize: 7.5,
+      },
+      bodyStyles: {
+        fontSize: 7.5,
+        textColor: [30, 41, 59],
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252],
+      },
+      margin: { left: 10, right: 10 },
+    });
+
+    doc.save(`STUDENT_ATTENDANCE_FORM_${new Date().toISOString().split("T")[0]}.pdf`);
+  };
+
+  // ==========================================
+  // 1. BEAUTIFUL PROFESSIONAL PDF EXPORT (LEDGER)
   // ==========================================
   const handleDownloadPDF = () => {
     if (!data || !hasRecords) {
@@ -446,36 +701,65 @@ export default function ReportsPage() {
       {/* Screen Header & Export Action Buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200 no-print">
         <div>
-          <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">
-            Attendance Reports &amp; Analytics
+          <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+            Attendance Reports &amp; Ledger
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold border border-emerald-300">
+              Verified Records
+            </span>
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Real performance metrics computed directly from verified attendance database records.
+            Real performance metrics and multi-subject attendance forms computed directly from database ledger.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Download Professional PDF */}
-          <button
-            onClick={handleDownloadPDF}
-            disabled={!hasRecords}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-xs font-bold transition-all shadow-xs disabled:opacity-40"
-            title="Download Official Formatted PDF Document"
-          >
-            <FileText className="w-4 h-4 text-rose-600" /> Export PDF
-          </button>
+          {viewMode === "MATRIX" ? (
+            <>
+              {/* Matrix PDF */}
+              <button
+                onClick={handleExportMatrixPDF}
+                disabled={!hasRecords}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-xs font-bold transition-all shadow-xs disabled:opacity-40"
+                title="Download STUDENT_ATTENDANT_FORM PDF (Landscape)"
+              >
+                <FileText className="w-4 h-4 text-rose-600" /> Export Matrix PDF
+              </button>
 
-          {/* Download Formatted Excel */}
-          <button
-            onClick={handleExportExcel}
-            disabled={!hasRecords}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold transition-all shadow-xs disabled:opacity-40"
-            title="Download Executive Multi-Row Spreadsheet"
-          >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Export Excel (.xlsx)
-          </button>
+              {/* Matrix Excel */}
+              <button
+                onClick={handleExportMatrixExcel}
+                disabled={!hasRecords}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-md shadow-emerald-600/20 disabled:opacity-40"
+                title="Download Formatted STUDENT_ATTENDANT_FORM Excel (.xlsx) with Per-Subject Columns"
+              >
+                <FileSpreadsheet className="w-4 h-4" /> Export Matrix Excel (.xlsx)
+              </button>
+            </>
+          ) : (
+            <>
+              {/* Overview PDF */}
+              <button
+                onClick={handleDownloadPDF}
+                disabled={!hasRecords}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-xs font-bold transition-all shadow-xs disabled:opacity-40"
+                title="Download Official Audit Report PDF"
+              >
+                <FileText className="w-4 h-4 text-rose-600" /> Export PDF
+              </button>
 
-          {/* Print / Hardcopy */}
+              {/* Overview Excel */}
+              <button
+                onClick={handleExportExcel}
+                disabled={!hasRecords}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold transition-all shadow-xs disabled:opacity-40"
+                title="Download Multi-Row Spreadsheet"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Export Excel (.xlsx)
+              </button>
+            </>
+          )}
+
+          {/* Print Hardcopy */}
           <button
             onClick={handlePrint}
             disabled={!hasRecords}
@@ -484,6 +768,38 @@ export default function ReportsPage() {
             <Printer className="w-4 h-4" /> Print
           </button>
         </div>
+      </div>
+
+      {/* VIEW MODE TABS: MATRIX vs OVERVIEW */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2 no-print">
+        <button
+          type="button"
+          onClick={() => setViewMode("MATRIX")}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            viewMode === "MATRIX"
+              ? "bg-slate-900 text-white shadow-md shadow-slate-900/20"
+              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+          }`}
+        >
+          <FileSpreadsheet className={`w-4 h-4 ${viewMode === "MATRIX" ? "text-emerald-400" : "text-emerald-600"}`} />
+          <span>STUDENT_ATTENDANT_FORM (Matrix View)</span>
+          <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-500/20 text-emerald-300 font-extrabold">
+            Cambodian Format
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setViewMode("OVERVIEW")}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            viewMode === "OVERVIEW"
+              ? "bg-slate-900 text-white shadow-md shadow-slate-900/20"
+              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+          }`}
+        >
+          <BarChart3 className={`w-4 h-4 ${viewMode === "OVERVIEW" ? "text-sky-400" : "text-sky-600"}`} />
+          <span>Overview Ledger &amp; Analytics</span>
+        </button>
       </div>
 
       {/* FILTER BAR: CLASS & SUBJECT FILTERS */}
@@ -542,7 +858,229 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* KPI Cards Strip */}
+      {viewMode === "MATRIX" ? (
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden p-5 space-y-4">
+          {/* Header Card matching exact user screenshot */}
+          <div className="bg-gradient-to-r from-slate-50 via-sky-50/40 to-slate-50 border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center font-bold text-xs">
+                  AF
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-slate-900 tracking-wide font-mono">
+                    STUDENT_ATTENDANT_FORM
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Cambodian Academic Standard Attendance Matrix • Section Group A1
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-600 bg-white/80 px-3 py-1.5 rounded-xl border border-slate-200">
+                <span>Academic Year: <strong className="text-slate-900">2025-2026</strong></span>
+                <span className="text-slate-300">|</span>
+                <span>Department: <strong className="text-slate-900">Computer Studies</strong></span>
+                <span className="text-slate-300">|</span>
+                <span>Major: <strong className="text-slate-900">Computer Science</strong></span>
+                <span className="text-slate-300">|</span>
+                <span>Year: <strong className="text-slate-900">1</strong></span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-3">
+                <span className="text-slate-600 font-bold">Group / Section:</span>
+                <span className="px-2.5 py-0.5 rounded-lg bg-sky-100 text-sky-800 font-bold border border-sky-300 font-mono">
+                  {classes.find((c) => c.id === selectedClass)?.name || "All Sections (A1)"}
+                </span>
+                <span className="text-slate-400">•</span>
+                <span className="text-slate-500">
+                  Showing <strong className="text-slate-800">{filteredStudentStats.length}</strong> Students across <strong className="text-slate-800">{displaySubjects.length}</strong> Subjects
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-1 rounded-md bg-red-50 text-red-700 font-bold border border-red-200 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-red-500" />
+                  Absent = ឈប់អត់ច្បាប់ (A)
+                </span>
+                <span className="px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 font-bold border border-blue-200 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-blue-500" />
+                  Permission = ឈប់មានច្បាប់ (P)
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Hierarchical Matrix Table */}
+          <div className="overflow-x-auto border border-slate-200 rounded-xl shadow-xs">
+            <table className="w-full text-left border-collapse text-xs">
+              {/* Double Header Level */}
+              <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px] tracking-wider">
+                <tr className="border-b border-slate-300">
+                  <th rowSpan={2} className="py-3 px-3 text-center w-10 border-r border-slate-200 bg-slate-100">
+                    No.
+                  </th>
+                  <th rowSpan={2} className="py-3 px-3 min-w-[180px] border-r border-slate-200 bg-slate-100">
+                    Name of Student
+                  </th>
+                  <th rowSpan={2} className="py-3 px-3 text-center min-w-[110px] border-r border-slate-200 bg-slate-100 font-mono">
+                    ID
+                  </th>
+                  <th rowSpan={2} className="py-3 px-2 text-center w-12 border-r border-slate-200 bg-slate-100">
+                    Sex
+                  </th>
+                  {displaySubjects.map((sub: any) => (
+                    <th
+                      key={sub.id}
+                      colSpan={2}
+                      className="py-2.5 px-3 text-center border-r border-slate-300 bg-slate-200/90 font-extrabold text-slate-900"
+                    >
+                      {sub.name}
+                    </th>
+                  ))}
+                  <th colSpan={2} className="py-2.5 px-3 text-center bg-slate-900 text-white font-extrabold">
+                    Total Tally
+                  </th>
+                </tr>
+                <tr className="border-b border-slate-300 text-[10px]">
+                  {displaySubjects.map((sub: any) => (
+                    <React.Fragment key={`col-hdr-${sub.id}`}>
+                      <th className="py-1.5 px-2 text-center text-red-700 bg-red-50/70 border-r border-slate-200">
+                        Absent
+                      </th>
+                      <th className="py-1.5 px-2 text-center text-blue-700 bg-blue-50/70 border-r border-slate-300">
+                        Permission
+                      </th>
+                    </React.Fragment>
+                  ))}
+                  <th className="py-1.5 px-2 text-center text-red-300 bg-slate-900 border-r border-slate-800">
+                    Absent
+                  </th>
+                  <th className="py-1.5 px-2 text-center text-blue-300 bg-slate-900">
+                    Permission
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {filteredStudentStats.length > 0 ? (
+                  filteredStudentStats.map((st: any, idx: number) => {
+                    let sTotAbsent = 0;
+                    let sTotPermission = 0;
+
+                    return (
+                      <tr key={st.studentId} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-2.5 px-3 text-center text-slate-400 font-mono border-r border-slate-100">
+                          {idx + 1}
+                        </td>
+                        <td className="py-2.5 px-3 border-r border-slate-100">
+                          <button
+                            onClick={() => handleOpenStudentView(st.studentId)}
+                            className="font-bold text-slate-900 hover:text-sky-600 hover:underline text-left block"
+                          >
+                            {st.studentName}
+                          </button>
+                        </td>
+                        <td className="py-2.5 px-3 text-center font-mono font-semibold text-slate-700 border-r border-slate-100">
+                          {st.studentNumber}
+                        </td>
+                        <td className="py-2.5 px-2 text-center font-medium text-slate-600 border-r border-slate-100">
+                          {st.gender || "M"}
+                        </td>
+
+                        {displaySubjects.map((sub: any) => {
+                          const matrix = st.subjectMatrix?.[sub.id] || { absent: 0, permission: 0 };
+                          const ab = matrix.absent || 0;
+                          const pe = matrix.permission || 0;
+                          sTotAbsent += ab;
+                          sTotPermission += pe;
+
+                          return (
+                            <React.Fragment key={`td-${st.studentId}-${sub.id}`}>
+                              <td className="py-2.5 px-2 text-center border-r border-slate-100">
+                                {ab > 0 ? (
+                                  <span className="font-extrabold text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded text-[11px]">
+                                    {ab}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 font-mono">0</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-2 text-center border-r border-slate-200">
+                                {pe > 0 ? (
+                                  <span className="font-extrabold text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded text-[11px]">
+                                    {pe}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 font-mono">0</span>
+                                )}
+                              </td>
+                            </React.Fragment>
+                          );
+                        })}
+
+                        <td className="py-2.5 px-2 text-center font-extrabold text-red-600 bg-red-50/40 border-r border-slate-200">
+                          {sTotAbsent > 0 ? sTotAbsent : <span className="text-slate-400 font-normal">0</span>}
+                        </td>
+                        <td className="py-2.5 px-2 text-center font-extrabold text-blue-600 bg-blue-50/40">
+                          {sTotPermission > 0 ? sTotPermission : <span className="text-slate-400 font-normal">0</span>}
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={4 + displaySubjects.length * 2 + 2} className="p-8 text-center text-slate-400 text-xs">
+                      {loading ? "កំពុងទាញយកទិន្នន័យ..." : "មិនមានទិន្នន័យវត្តមានស្របតាមលក្ខខណ្ឌចម្រាញ់នេះទេ។"}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+
+              {/* Total Footer Row */}
+              {filteredStudentStats.length > 0 && (
+                <tfoot className="bg-slate-100 text-slate-900 font-bold border-t-2 border-slate-300 text-xs">
+                  <tr>
+                    <td colSpan={4} className="py-3 px-4 uppercase text-slate-700 tracking-wider border-r border-slate-300">
+                      សរុបទាំងអស់ (TOTAL)
+                    </td>
+                    {displaySubjects.map((sub: any) => {
+                      const colAbsent = filteredStudentStats.reduce(
+                        (acc: number, s: any) => acc + (s.subjectMatrix?.[sub.id]?.absent || 0),
+                        0
+                      );
+                      const colPermission = filteredStudentStats.reduce(
+                        (acc: number, s: any) => acc + (s.subjectMatrix?.[sub.id]?.permission || 0),
+                        0
+                      );
+
+                      return (
+                        <React.Fragment key={`foot-${sub.id}`}>
+                          <td className="py-3 px-2 text-center text-red-600 border-r border-slate-200">
+                            {colAbsent}
+                          </td>
+                          <td className="py-3 px-2 text-center text-blue-600 border-r border-slate-300">
+                            {colPermission}
+                          </td>
+                        </React.Fragment>
+                      );
+                    })}
+                    <td className="py-3 px-2 text-center text-red-700 bg-red-100/60 border-r border-slate-300 font-extrabold">
+                      {filteredStudentStats.reduce((acc: number, s: any) => acc + (s.absentCount || 0), 0)}
+                    </td>
+                    <td className="py-3 px-2 text-center text-blue-700 bg-blue-100/60 font-extrabold">
+                      {filteredStudentStats.reduce((acc: number, s: any) => acc + (s.excusedCount || 0), 0)}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* KPI Cards Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-sm flex items-center justify-between">
           <div>
@@ -797,6 +1335,8 @@ export default function ReportsPage() {
           )}
         </div>
       </div>
+      </>
+      )}
 
       {/* Official Signature Lines for Printed Reports */}
       {hasRecords && (

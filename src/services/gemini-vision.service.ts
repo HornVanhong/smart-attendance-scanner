@@ -122,43 +122,36 @@ export class GeminiVisionService {
           },
         });
 
-        // Ultra-compact prompt to minimize generated tokens and execute in ~2-3s
-        const prompt = `You are a high-speed Attendance Sheet OCR AI.
-Analyze this Cambodian school attendance sheet image.
+        // Specialized prompt instructing Gemini to read the vertical handwritten subjects in the circled header
+        const prompt = `You are an expert Cambodian attendance sheet scanner AI.
+Analyze this attendance sheet image or PDF document.
 
-Extract:
-1. "className": Class or grade name
-2. "subjectName": Main course or "General Attendance"
-3. "date": Sheet date (YYYY-MM-DD) if visible
-4. "periods": Array of session headers horizontally from left to right (e.g. ["Period 1", "Period 2", "Period 3", "Period 4"])
-5. "students": Array of student rows. For each student:
+TOP HEADER INSTRUCTIONS:
+- Look at the 'DATE' row for days and dates (e.g. Mon 8/06/26, Tue 09/06/26, Wed 10/06/26, Thu 11/06/26, Fri 12/06/26).
+- Look at the 'TIME' row for period numbers (1, 2, 3, 4, 5).
+- CRITICAL: Read the vertical handwritten subject titles written in the 'SUBJECT' row for each column (e.g. 'English', 'Principle of Economics', 'Khmer Culture', 'Vector Design', 'Creation Concept', 'Creative Concept', etc.).
+
+EXTRACT:
+1. "className": Class name or section (e.g. "Year 1 - Group A1")
+2. "date": Sheet start date (YYYY-MM-DD)
+3. "columns": Array of column headers horizontally from left to right:
+   [
+     { "index": 0, "day": "Mon", "date": "2026-06-08", "period": 1, "subject": "English" },
+     { "index": 1, "day": "Mon", "date": "2026-06-08", "period": 2, "subject": "Principle of Economics" }
+   ]
+4. "students": Array of student rows. For each student:
    - "rowIndex": number (0, 1, 2...)
-   - "studentNumber": Student ID (e.g. "STU-001")
+   - "studentNumber": Student ID or No. (e.g. "1", "2" or "B20254724")
    - "fullName": Full Name
    - "gender": "M" or "F"
-   - "marks": Array of strings representing marks along the row for each period:
+   - "marks": Array of strings representing marks along the row for each column:
      "✓" = present (checkmark or slash)
      "A" = unexcused absence (ឈប់អត់ច្បាប់)
      "P" = permission / excused (ឈប់មានច្បាប់)
      "L" = late (មកយឺត)
      ""  = blank / unmarked
 
-Return ONLY this compact JSON:
-{
-  "className": "Year 1",
-  "subjectName": "Attendance",
-  "date": "2024-05-10",
-  "periods": ["Period 1", "Period 2", "Period 3", "Period 4"],
-  "students": [
-    {
-      "rowIndex": 0,
-      "studentNumber": "STU-001",
-      "fullName": "Student Name",
-      "gender": "M",
-      "marks": ["✓", "A", "P", ""]
-    }
-  ]
-}`;
+Return ONLY valid JSON with className, date, columns, and students.`;
 
         const base64Image = imageBuffer.toString("base64");
         const startTime = Date.now();
@@ -177,7 +170,26 @@ Return ONLY this compact JSON:
         const cleaned = responseText.replace(/```json/gi, "").replace(/```/g, "").trim();
         const parsed = JSON.parse(cleaned);
 
-        const periodsCount = Math.max(1, (parsed.periods || []).length);
+        const rawCols = Array.isArray(parsed.columns) && parsed.columns.length > 0
+          ? parsed.columns
+          : (Array.isArray(parsed.periods) ? parsed.periods : []);
+
+        const formattedPeriods = rawCols.map((col: any, idx: number) => {
+          if (typeof col === "string") {
+            return { periodNumber: idx + 1, label: col, subject: col };
+          }
+          const sub = col.subject || col.title || col.label || "";
+          const day = col.day || "";
+          const label = sub ? (day ? `${day}: ${sub}` : sub) : `Period ${col.period || idx + 1}`;
+          return {
+            periodNumber: col.period || idx + 1,
+            label,
+            subject: sub || label,
+            date: col.date || parsed.date,
+          };
+        });
+
+        const periodsCount = Math.max(1, formattedPeriods.length);
         const colWidth = Math.max(45, Math.round((imageWidth * 0.55) / periodsCount));
         const totalStudents = Math.max(1, (parsed.students || []).length);
         const rowHeight = Math.max(25, Math.round((imageHeight * 0.70) / totalStudents));
@@ -228,7 +240,7 @@ Return ONLY this compact JSON:
             };
 
             return {
-              period: cIdx + 1,
+              period: formattedPeriods[cIdx]?.periodNumber || cIdx + 1,
               symbol,
               status,
               confidence,
@@ -245,22 +257,9 @@ Return ONLY this compact JSON:
           };
         });
 
-        // Format periods
-        const formattedPeriods = (parsed.periods || []).map((p: any, idx: number) => {
-          if (typeof p === "string") {
-            return { periodNumber: idx + 1, label: p, subject: p };
-          }
-          return {
-            periodNumber: p.periodNumber || idx + 1,
-            label: p.label || `Period ${idx + 1}`,
-            subject: p.subject || p.label,
-            date: p.date,
-          };
-        });
-
         return {
           className: parsed.className,
-          subjectName: parsed.subjectName,
+          subjectName: parsed.subjectName || formattedPeriods[0]?.subject || "General Attendance",
           date: parsed.date,
           periods: formattedPeriods.length > 0 ? formattedPeriods : [
             { periodNumber: 1, label: "Period 1" },

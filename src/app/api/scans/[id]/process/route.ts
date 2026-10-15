@@ -61,26 +61,38 @@ export async function POST(
       rawFileBuffer = fs.readFileSync(absoluteImagePath);
     }
 
-    // 3. Image calibration & optimization with sharp (1200px width with quality 80 for 3x faster AI upload)
-    let sharpPipeline = sharp(rawFileBuffer);
-    if (rotationAngle !== 0) {
-      sharpPipeline = sharpPipeline.rotate(rotationAngle);
-    }
-    if (brightness !== 0) {
-      const bFactor = Math.max(0.2, 1 + brightness / 100);
-      sharpPipeline = sharpPipeline.modulate({ brightness: bFactor });
-    }
+    const isPdf =
+      sheet.mimeType === "application/pdf" ||
+      sheet.imageStorageKey.includes("application/pdf") ||
+      Boolean(sheet.originalFileName?.toLowerCase().endsWith(".pdf"));
 
-    sharpPipeline = sharpPipeline.resize({
-      width: 1200,
-      withoutEnlargement: true,
-      fit: "inside",
-    });
+    let processedBuffer = rawFileBuffer;
+    let actualMime = isPdf ? "application/pdf" : "image/jpeg";
+    let imgWidth = 1200;
+    let imgHeight = 900;
 
-    const processedBuffer = await sharpPipeline.jpeg({ quality: 80 }).toBuffer();
-    const meta = await sharp(processedBuffer).metadata();
-    const imgWidth = meta.width || 1024;
-    const imgHeight = meta.height || 980;
+    if (!isPdf) {
+      // 3. Image calibration & optimization with sharp (1200px width with quality 80 for 3x faster AI upload)
+      let sharpPipeline = sharp(rawFileBuffer);
+      if (rotationAngle !== 0) {
+        sharpPipeline = sharpPipeline.rotate(rotationAngle);
+      }
+      if (brightness !== 0) {
+        const bFactor = Math.max(0.2, 1 + brightness / 100);
+        sharpPipeline = sharpPipeline.modulate({ brightness: bFactor });
+      }
+
+      sharpPipeline = sharpPipeline.resize({
+        width: 1200,
+        withoutEnlargement: true,
+        fit: "inside",
+      });
+
+      processedBuffer = await sharpPipeline.jpeg({ quality: 80 }).toBuffer();
+      const meta = await sharp(processedBuffer).metadata();
+      imgWidth = meta.width || 1024;
+      imgHeight = meta.height || 980;
+    }
 
     // Check if Gemini API key is available
     const geminiKey = directApiKey || getActiveGeminiApiKey();
@@ -143,6 +155,8 @@ export async function POST(
     const createdCells: any[] = [];
     let detectedStudentCount = 0;
     let sheetDate = sheet.sheetDate || new Date();
+    let detectedColumns: any[] = [];
+    let columnSubjectsMap: Record<number, string> = {};
 
     // ==========================================
     // PATH A: GEMINI MULTIMODAL AI VISION
@@ -152,7 +166,7 @@ export async function POST(
         console.log("Processing with Gemini Fast Multimodal AI Vision...");
         const aiExtraction = await GeminiVisionService.extractAttendanceSheet(
           processedBuffer,
-          "image/jpeg",
+          actualMime,
           geminiKey,
           imgWidth,
           imgHeight
@@ -164,6 +178,68 @@ export async function POST(
         if (aiExtraction.date) {
           const parsedD = new Date(aiExtraction.date);
           if (!isNaN(parsedD.getTime())) sheetDate = parsedD;
+        }
+
+        // Auto-associate or create Subject records for each detected column subject
+        if (aiExtraction.periods && aiExtraction.periods.length > 0) {
+          detectedColumns = aiExtraction.periods;
+          for (let idx = 0; idx < detectedColumns.length; idx++) {
+            const col = detectedColumns[idx];
+            const subName = (col.subject || col.label || "").trim();
+            if (subName && subName.length > 1 && !subName.toLowerCase().startsWith("period")) {
+              try {
+                let existingSubject = await prisma.subject.findFirst({
+                  where: {
+                    schoolId: sheet.schoolId,
+                    name: { equals: subName, mode: "insensitive" },
+                  },
+                });
+
+                if (!existingSubject) {
+                  const codePrefix = subName.replace(/[^A-Za-z]/g, "").slice(0, 4).toUpperCase() || "SUB";
+                  const codeNum = Math.floor(100 + Math.random() * 900);
+                  let codeCandidate = `${codePrefix}-${codeNum}`;
+                  const codeExists = await prisma.subject.findFirst({
+                    where: { schoolId: sheet.schoolId, code: codeCandidate },
+                  });
+                  if (codeExists) {
+                    codeCandidate = `${codePrefix}-${Date.now().toString().slice(-4)}`;
+                  }
+
+                  existingSubject = await prisma.subject.create({
+                    data: {
+                      schoolId: sheet.schoolId,
+                      name: subName,
+                      code: codeCandidate,
+                      periodsCount: 4,
+                    },
+                  });
+                }
+
+                if (targetClassId) {
+                  await prisma.classSubject.upsert({
+                    where: {
+                      classId_subjectId: {
+                        classId: targetClassId,
+                        subjectId: existingSubject.id,
+                      },
+                    },
+                    update: {},
+                    create: {
+                      classId: targetClassId,
+                      subjectId: existingSubject.id,
+                    },
+                  }).catch(() => {});
+                }
+
+                columnSubjectsMap[idx] = existingSubject.id;
+                col.subjectId = existingSubject.id;
+                col.subjectName = existingSubject.name;
+              } catch (subErr) {
+                console.warn(`Failed to auto-create subject for ${subName}:`, subErr);
+              }
+            }
+          }
         }
 
         const cellsToInsert: any[] = [];
@@ -429,6 +505,8 @@ export async function POST(
           rotationAngle,
           usedAiVision,
           model: usedAiVision ? "Gemini 1.5 Flash Vision" : "Tesseract Local OCR",
+          columns: detectedColumns,
+          columnSubjectsMap,
         }),
       },
       include: {

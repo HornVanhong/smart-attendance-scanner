@@ -98,12 +98,16 @@ export async function POST(req: NextRequest) {
 
       // If running on Vercel or filesystem is read-only, optimize with sharp and encode as Data URI
       if (!writtenToDisk) {
-        const sharp = (await import("sharp")).default;
-        const optimizedBuffer = await sharp(buffer)
-          .resize({ width: 1800, withoutEnlargement: true, fit: "inside" })
-          .jpeg({ quality: 80 })
-          .toBuffer();
-        imageStorageKey = `data:image/jpeg;base64,${optimizedBuffer.toString("base64")}`;
+        if (mimeType === "application/pdf") {
+          imageStorageKey = `data:application/pdf;base64,${buffer.toString("base64")}`;
+        } else {
+          const sharp = (await import("sharp")).default;
+          const optimizedBuffer = await sharp(buffer)
+            .resize({ width: 1800, withoutEnlargement: true, fit: "inside" })
+            .jpeg({ quality: 80 })
+            .toBuffer();
+          imageStorageKey = `data:image/jpeg;base64,${optimizedBuffer.toString("base64")}`;
+        }
       }
     } else {
       const body = await req.json().catch(() => ({}));

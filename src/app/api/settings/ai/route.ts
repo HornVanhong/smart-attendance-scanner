@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { GeminiVisionService } from "@/services/gemini-vision.service";
 import { getActiveGeminiApiKey, setActiveGeminiApiKey } from "@/lib/gemini-config";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const currentKey = getActiveGeminiApiKey();
   const configured = !!currentKey && currentKey.length > 8;

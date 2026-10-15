@@ -360,7 +360,7 @@ export default function ScanAttendancePage() {
               type="file"
               ref={fileInputRef}
               onChange={handleFileChange}
-              accept="image/jpeg,image/png,image/webp"
+              accept="image/jpeg,image/png,image/webp,application/pdf,.pdf"
               className="hidden"
             />
             <input
@@ -377,10 +377,10 @@ export default function ScanAttendancePage() {
             </div>
 
             <p className="text-sm font-bold text-slate-800">
-              {selectedFile ? selectedFile.name : "Drag & drop attendance sheet photo here"}
+              {selectedFile ? selectedFile.name : "Drag & drop attendance sheet photo or PDF here"}
             </p>
             <p className="text-xs text-slate-500 mt-1">
-              Supports JPG, JPEG, PNG, or WebP up to 15 MB
+              Supports JPG, PNG, WebP, or PDF documents up to 15 MB
             </p>
 
             <div className="flex items-center justify-center gap-2.5 mt-4">
@@ -580,21 +580,35 @@ export default function ScanAttendancePage() {
 
           <div className="flex-1 min-h-[460px] bg-slate-900/5 rounded-xl border border-slate-200/80 mt-4 p-4 flex items-center justify-center overflow-hidden relative">
             {imagePreviewUrl ? (
-              <div
-                style={{
-                  transform: `rotate(${rotationAngle}deg)`,
-                  filter: filterString,
-                  transition: "transform 0.3s ease, filter 0.15s ease",
-                }}
-                className="max-w-full max-h-full flex items-center justify-center"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={imagePreviewUrl}
-                  alt="Attendance Sheet Preview"
-                  className="max-h-[520px] w-auto object-contain rounded-lg shadow-md border border-slate-200"
-                />
-              </div>
+              selectedFile?.type === "application/pdf" || selectedFile?.name.toLowerCase().endsWith(".pdf") ? (
+                <div className="w-full h-full min-h-[460px] flex flex-col items-center justify-center p-2">
+                  <iframe
+                    src={imagePreviewUrl}
+                    className="w-full h-[440px] rounded-lg border border-slate-200 bg-white shadow-sm"
+                    title="PDF Document Preview"
+                  />
+                  <div className="mt-2 text-xs font-semibold text-emerald-800 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-300 flex items-center gap-1.5">
+                    <FileCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    PDF Document Selected • Directly Recognized by Multimodal AI
+                  </div>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    transform: `rotate(${rotationAngle}deg)`,
+                    filter: filterString,
+                    transition: "transform 0.3s ease, filter 0.15s ease",
+                  }}
+                  className="max-w-full max-h-full flex items-center justify-center"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={imagePreviewUrl}
+                    alt="Attendance Sheet Preview"
+                    className="max-h-[520px] w-auto object-contain rounded-lg shadow-md border border-slate-200"
+                  />
+                </div>
+              )
             ) : (
               <div className="text-center p-8 space-y-2 text-slate-400">
                 <Upload className="w-10 h-10 mx-auto stroke-1" />

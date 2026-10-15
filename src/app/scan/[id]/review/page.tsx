@@ -123,6 +123,12 @@ export default function ReviewWorkspacePage() {
     [cells, selectedCellId]
   );
 
+  const isPdf = Boolean(
+    sheet?.mimeType === "application/pdf" ||
+    sheet?.imageStorageKey?.startsWith("data:application/pdf") ||
+    sheet?.originalFileName?.toLowerCase().endsWith(".pdf")
+  );
+
   // Record a state change in history for Undo
   const pushState = useCallback((newCells: ScanCellModel[]) => {
     setHistory((prev) => [...prev.slice(-20), cells]);
@@ -355,16 +361,31 @@ export default function ReviewWorkspacePage() {
   };
   const handleMouseUp = () => setIsPanning(false);
 
-  // Dynamic column headers detected across the attendance sheet
+  // Dynamic column headers detected across the attendance sheet (including detected vertical subject titles)
   const distinctColumns = useMemo(() => {
-    const colMap = new Map<number, { period: number; label: string; date?: string }>();
+    let metadataCols: any[] = [];
+    try {
+      if (sheet?.metadataJson) {
+        const parsed = JSON.parse(sheet.metadataJson);
+        metadataCols = parsed.columns || [];
+      }
+    } catch {}
+
+    const colMap = new Map<number, { period: number; label: string; date?: string; subject?: string }>();
     cells.forEach((c) => {
       const idx = typeof c.columnIndex === "number" ? c.columnIndex : (c.period - 1);
       if (!colMap.has(idx)) {
+        const metaCol = metadataCols[idx];
+        const subName = metaCol?.subject || metaCol?.label;
+        const colLabel = subName && !subName.toLowerCase().startsWith("period")
+          ? `${subName} (P${c.period})`
+          : `Period ${c.period}`;
+
         colMap.set(idx, {
           period: c.period,
-          label: `Period ${c.period}`,
-          date: c.dateString,
+          label: colLabel,
+          subject: subName,
+          date: metaCol?.date || c.dateString,
         });
       }
     });
@@ -377,7 +398,7 @@ export default function ReviewWorkspacePage() {
       ];
     }
     return sorted.map(([key, val]) => ({ key, ...val }));
-  }, [cells]);
+  }, [cells, sheet?.metadataJson]);
 
   // Group cells by Student Rows for spreadsheet display
   // រាប់តាមជួរដេក (Count horizontally along row): A = ឈប់អត់ច្បាប់, ✓ / P = វត្តមាន
@@ -671,17 +692,26 @@ export default function ReviewWorkspacePage() {
             </div>
           </div>
 
-          {/* Interactive Zoom & Pan Canvas */}
-          <div
-            ref={imageContainerRef}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
-            className={`flex-1 relative bg-slate-950 overflow-hidden cursor-${
-              isPanning ? "grabbing" : "grab"
-            } flex items-center justify-center select-none`}
-          >
+          {/* Interactive Zoom & Pan Canvas OR PDF Viewer */}
+          {isPdf ? (
+            <div className="flex-1 p-2 bg-slate-900 flex flex-col">
+              <iframe
+                src={sheet?.imageStorageKey}
+                className="w-full h-full min-h-[660px] border-0 rounded-lg bg-white shadow-2xl"
+                title="Original Attendance PDF Sheet"
+              />
+            </div>
+          ) : (
+            <div
+              ref={imageContainerRef}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+              className={`flex-1 relative bg-slate-950 overflow-hidden cursor-${
+                isPanning ? "grabbing" : "grab"
+              } flex items-center justify-center select-none`}
+            >
             <div
               style={{
                 transform: `translate(${panX}px, ${panY}px) scale(${zoomLevel})`,
@@ -801,6 +831,7 @@ export default function ReviewWorkspacePage() {
               </div>
             )}
           </div>
+          )}
         </div>
 
         {/* ================= RIGHT PANEL: SPREADSHEET REVIEW TABLE ================= */}

@@ -37,6 +37,14 @@ export async function POST(
     const verifiedById = verifiedUser?.id || null;
     const defaultDate = sheet.sheetDate || new Date();
 
+    let sheetMetadata: any = null;
+    try {
+      if (sheet.metadataJson) sheetMetadata = JSON.parse(sheet.metadataJson);
+    } catch {}
+
+    const columnSubjectsMap: Record<number, string> = sheetMetadata?.columnSubjectsMap || {};
+    const columnsList: any[] = sheetMetadata?.columns || [];
+
     let committedCount = 0;
 
     for (const cell of sheet.cells) {
@@ -72,10 +80,13 @@ export async function POST(
 
       if (!studentId) continue;
 
-      // Ensure target subject exists
-      let targetSubjectId = sheet.subjectId;
+      // Determine the specific subject for this column (e.g. English, Economics, Khmer Culture, etc.)
+      const colIndex = cell.columnIndex;
+      const colInfo = columnsList[colIndex];
+      let targetSubjectId = columnSubjectsMap[colIndex] || colInfo?.subjectId || sheet.subjectId;
+
       if (!targetSubjectId) {
-        let firstSub = await prisma.subject.findFirst();
+        let firstSub = await prisma.subject.findFirst({ where: { schoolId: sheet.schoolId } });
         if (!firstSub) {
           firstSub = await prisma.subject.create({
             data: {
@@ -88,10 +99,12 @@ export async function POST(
         targetSubjectId = firstSub.id;
       }
 
-      const dateObj =
-        cell.dateString && !isNaN(new Date(cell.dateString).getTime())
-          ? new Date(cell.dateString)
-          : defaultDate;
+      let dateObj = defaultDate;
+      if (colInfo?.date && !isNaN(new Date(colInfo.date).getTime())) {
+        dateObj = new Date(colInfo.date);
+      } else if (cell.dateString && !isNaN(new Date(cell.dateString).getTime())) {
+        dateObj = new Date(cell.dateString);
+      }
 
       const validStatus =
         cell.interpretedStatus === "PRESENT" ||
