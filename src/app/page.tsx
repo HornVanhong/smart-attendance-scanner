@@ -152,19 +152,21 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Present vs Absent */}
+        {/* Present vs Absent vs Excused */}
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-sm flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              Present / Absent
+              វត្តមាន / អវត្តមាន
             </span>
             <div className="text-2xl sm:text-3xl font-extrabold text-slate-900">
-              <span className="text-emerald-600">{summary.presentCount}</span>
+              <span className="text-emerald-600" title="វត្តមាន (✓)">{summary.presentCount}</span>
               <span className="text-slate-300 font-light mx-1">/</span>
-              <span className="text-red-500">{summary.absentCount}</span>
+              <span className="text-red-500" title="ឈប់អត់ច្បាប់ (A)">{summary.absentCount}</span>
+              <span className="text-slate-300 font-light mx-1">/</span>
+              <span className="text-blue-500" title="ឈប់មានច្បាប់ (P)">{summary.excusedCount}</span>
             </div>
             <span className="text-[11px] text-slate-500 font-medium">
-              {summary.lateCount} Late Sessions
+              ✓ {summary.presentCount} | A {summary.absentCount} | P {summary.excusedCount} ដង
             </span>
           </div>
           <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">

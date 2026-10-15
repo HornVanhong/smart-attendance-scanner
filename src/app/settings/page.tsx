@@ -13,16 +13,25 @@ import {
   Info,
   Clock,
   Sparkles,
+  AlertTriangle,
 } from "lucide-react";
 
 export default function SettingsPage() {
-  const [tab, setTab] = useState<"SYMBOLS" | "SCHOOL" | "AUDIT">("SYMBOLS");
+  const [tab, setTab] = useState<"SYMBOLS" | "SCHOOL" | "AUDIT" | "GEMINI_AI">("SYMBOLS");
   const [symbols, setSymbols] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [schoolSuccess, setSchoolSuccess] = useState(false);
+
+  // Gemini AI state
+  const [geminiApiKeyInput, setGeminiApiKeyInput] = useState("");
+  const [geminiConfigured, setGeminiConfigured] = useState(false);
+  const [geminiMaskedKey, setGeminiMaskedKey] = useState("");
+  const [geminiTesting, setGeminiTesting] = useState(false);
+  const [geminiSaving, setGeminiSaving] = useState(false);
+  const [geminiStatusMsg, setGeminiStatusMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // School profile state
   const [schoolForm, setSchoolForm] = useState({
@@ -46,8 +55,9 @@ export default function SettingsPage() {
       fetch("/api/settings/symbols").then((r) => r.json()),
       fetch("/api/settings/school").then((r) => r.json()),
       fetch("/api/audit").then((r) => r.json()),
+      fetch("/api/settings/ai").then((r) => r.json()).catch(() => ({})),
     ])
-      .then(([symData, schData, audData]) => {
+      .then(([symData, schData, audData, aiData]) => {
         setSymbols(symData.symbols || []);
         if (schData.school) {
           setSchoolForm({
@@ -59,6 +69,10 @@ export default function SettingsPage() {
           });
         }
         setAuditLogs(audData.logs || []);
+        if (aiData) {
+          setGeminiConfigured(!!aiData.configured);
+          setGeminiMaskedKey(aiData.maskedKey || "");
+        }
         setLoading(false);
       })
       .catch((e) => {
@@ -70,6 +84,63 @@ export default function SettingsPage() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  const handleTestGeminiKey = async () => {
+    const keyToTest = geminiApiKeyInput.trim();
+    if (!keyToTest) {
+      setGeminiStatusMsg({ type: "error", text: "Please enter a Gemini API key to test." });
+      return;
+    }
+    setGeminiTesting(true);
+    setGeminiStatusMsg(null);
+    try {
+      const res = await fetch("/api/settings/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: keyToTest, testOnly: true }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setGeminiStatusMsg({ type: "success", text: "Connection verified! Key is valid and active with Gemini AI." });
+      } else {
+        setGeminiStatusMsg({ type: "error", text: data.error || "Failed to validate Gemini API key." });
+      }
+    } catch (err: any) {
+      setGeminiStatusMsg({ type: "error", text: err.message || "Failed to connect to Gemini API." });
+    } finally {
+      setGeminiTesting(false);
+    }
+  };
+
+  const handleSaveGeminiKey = async () => {
+    const keyToSave = geminiApiKeyInput.trim();
+    if (!keyToSave) {
+      setGeminiStatusMsg({ type: "error", text: "Please enter a valid Gemini API key to save." });
+      return;
+    }
+    setGeminiSaving(true);
+    setGeminiStatusMsg(null);
+    try {
+      const res = await fetch("/api/settings/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: keyToSave }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setGeminiConfigured(true);
+        setGeminiMaskedKey(keyToSave.slice(0, 4) + "••••••••••••" + keyToSave.slice(-4));
+        setGeminiApiKeyInput("");
+        setGeminiStatusMsg({ type: "success", text: "Gemini API key saved! Multimodal AI vision is now enabled." });
+      } else {
+        setGeminiStatusMsg({ type: "error", text: data.error || "Failed to save key." });
+      }
+    } catch (err: any) {
+      setGeminiStatusMsg({ type: "error", text: err.message || "Failed to save key." });
+    } finally {
+      setGeminiSaving(false);
+    }
+  };
 
   const handleUpdateSymbolStatus = (
     index: number,
@@ -176,6 +247,14 @@ export default function SettingsPage() {
             }`}
           >
             <ShieldAlert className="w-3.5 h-3.5" /> Audit Trail
+          </button>
+          <button
+            onClick={() => setTab("GEMINI_AI")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              tab === "GEMINI_AI" ? "bg-white text-purple-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-600" /> AI Vision (Gemini)
           </button>
         </div>
       </div>
@@ -406,6 +485,144 @@ export default function SettingsPage() {
                 No activity logs recorded yet.
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* GEMINI AI CONFIGURATION TAB */}
+      {tab === "GEMINI_AI" && (
+        <div className="space-y-5">
+          <div className="bg-gradient-to-r from-purple-50 via-indigo-50 to-sky-50 border border-purple-200 rounded-2xl p-5 text-xs text-purple-900 flex items-start gap-3 shadow-xs">
+            <Sparkles className="w-5 h-5 text-purple-600 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-bold text-sm text-purple-950">Google Gemini Multimodal AI Vision Integration</p>
+              <p className="text-purple-800 leading-relaxed">
+                Connect your Google Gemini API key to unlock state-of-the-art vision recognition on real paper attendance sheets. Gemini analyzes handwritten student names, sexes, column structures, and roll-call marks (✓, A, P, L, E) directly from uploaded smartphone photos or scans.
+              </p>
+            </div>
+          </div>
+
+          {/* Connection Card */}
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="font-bold text-sm text-slate-900">API Key &amp; Connection Status</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Your API key is securely saved to your local environment file (<code className="font-mono bg-slate-100 px-1 py-0.5 rounded text-[11px]">.env</code>).
+                </p>
+              </div>
+              <div>
+                {geminiConfigured ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Connected
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600" /> Not Connected
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Status message */}
+            {geminiStatusMsg && (
+              <div
+                className={`p-3 rounded-xl border text-xs font-semibold flex items-center gap-2 ${
+                  geminiStatusMsg.type === "success"
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                    : "bg-red-50 border-red-200 text-red-800"
+                }`}
+              >
+                {geminiStatusMsg.type === "success" ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <ShieldAlert className="w-4 h-4 text-red-600 shrink-0" />
+                )}
+                <span>{geminiStatusMsg.text}</span>
+              </div>
+            )}
+
+            {/* Active Key Display if Configured */}
+            {geminiConfigured && (
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs flex items-center justify-between">
+                <div>
+                  <span className="text-slate-500 font-semibold block text-[11px]">ACTIVE API KEY</span>
+                  <span className="font-mono font-bold text-slate-800 text-xs">{geminiMaskedKey}</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-slate-500 font-semibold block text-[11px]">DEFAULT MODEL</span>
+                  <span className="font-bold text-purple-700 text-xs">gemini-1.5-flash / gemini-2.0-flash</span>
+                </div>
+              </div>
+            )}
+
+            {/* Input field */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-700">
+                {geminiConfigured ? "Update or Replace Gemini API Key" : "Enter Google Gemini API Key"}
+              </label>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <input
+                  type="password"
+                  placeholder="Paste your API key here (AIzaSy...)"
+                  value={geminiApiKeyInput}
+                  onChange={(e) => setGeminiApiKeyInput(e.target.value)}
+                  className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 font-mono text-xs focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleTestGeminiKey}
+                  disabled={geminiTesting || !geminiApiKeyInput.trim()}
+                  className="px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all disabled:opacity-40"
+                >
+                  {geminiTesting ? "Testing..." : "Test Key"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveGeminiKey}
+                  disabled={geminiSaving || !geminiApiKeyInput.trim()}
+                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold shadow-md shadow-purple-600/30 transition-all disabled:opacity-40"
+                >
+                  {geminiSaving ? "Saving..." : "Save Key"}
+                </button>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
+                <span>Free tier available at Google AI Studio</span>
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-purple-600 hover:text-purple-800 font-semibold underline"
+                >
+                  Get your free API key at Google AI Studio ↗
+                </a>
+              </div>
+            </div>
+
+            {/* Model Capabilities & Feature Breakdown */}
+            <div className="pt-4 border-t border-slate-100 space-y-3">
+              <h4 className="text-xs font-bold text-slate-900">Multimodal Vision Capabilities</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                  <div className="font-bold text-slate-800">1. Roster &amp; Student Extraction</div>
+                  <p className="text-[11px] text-slate-500 leading-normal">
+                    Accurately identifies student IDs, Khmer / International names, and gender from handwritten or printed rosters.
+                  </p>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                  <div className="font-bold text-slate-800">2. Handwritten Symbol Classifier</div>
+                  <p className="text-[11px] text-slate-500 leading-normal">
+                    Distinguishes checkmarks (✓), letters (A, P, L, E), empty spaces, and smudged scribbles with individual confidence scores.
+                  </p>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                  <div className="font-bold text-slate-800">3. Coordinate Mapping</div>
+                  <p className="text-[11px] text-slate-500 leading-normal">
+                    Maps each recognized cell to its pixel coordinates on the original image for interactive split-screen verification.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

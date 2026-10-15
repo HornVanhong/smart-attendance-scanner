@@ -76,17 +76,35 @@ export async function POST(req: NextRequest) {
       fileSize = file.size;
       mimeType = file.type;
 
-      // Ensure upload directory exists
-      const uploadsDir = path.join(process.cwd(), "public", "uploads");
-      if (!fs.existsSync(uploadsDir)) {
-        fs.mkdirSync(uploadsDir, { recursive: true });
-      }
-
       const buffer = Buffer.from(await file.arrayBuffer());
       const safeName = `scan_${Date.now()}_${fileName.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-      const filePath = path.join(uploadsDir, safeName);
-      fs.writeFileSync(filePath, buffer);
-      imageStorageKey = `/uploads/${safeName}`;
+
+      // Check if we can write to public/uploads (local dev / persistent VPS)
+      let writtenToDisk = false;
+      if (!process.env.VERCEL) {
+        try {
+          const uploadsDir = path.join(process.cwd(), "public", "uploads");
+          if (!fs.existsSync(uploadsDir)) {
+            fs.mkdirSync(uploadsDir, { recursive: true });
+          }
+          const filePath = path.join(uploadsDir, safeName);
+          fs.writeFileSync(filePath, buffer);
+          imageStorageKey = `/uploads/${safeName}`;
+          writtenToDisk = true;
+        } catch (fsErr) {
+          console.warn("Could not write to local disk (Serverless/Vercel environment):", fsErr);
+        }
+      }
+
+      // If running on Vercel or filesystem is read-only, optimize with sharp and encode as Data URI
+      if (!writtenToDisk) {
+        const sharp = (await import("sharp")).default;
+        const optimizedBuffer = await sharp(buffer)
+          .resize({ width: 1800, withoutEnlargement: true, fit: "inside" })
+          .jpeg({ quality: 80 })
+          .toBuffer();
+        imageStorageKey = `data:image/jpeg;base64,${optimizedBuffer.toString("base64")}`;
+      }
     } else {
       const body = await req.json().catch(() => ({}));
       if (body.imageStorageKey) {

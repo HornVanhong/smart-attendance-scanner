@@ -63,10 +63,10 @@ export default function ReportsPage() {
   };
 
   const pieData = [
-    { name: "Present", value: summary.presentCount || 0, color: "#10b981" },
-    { name: "Absent", value: summary.absentCount || 0, color: "#ef4444" },
-    { name: "Late", value: summary.lateCount || 0, color: "#f59e0b" },
-    { name: "Excused", value: summary.excusedCount || 0, color: "#3b82f6" },
+    { name: "✓ វត្តមាន", value: summary.presentCount || 0, color: "#10b981" },
+    { name: "A ឈប់អត់ច្បាប់", value: summary.absentCount || 0, color: "#ef4444" },
+    { name: "P ឈប់មានច្បាប់", value: summary.excusedCount || 0, color: "#3b82f6" },
+    { name: "L មកយឺត", value: summary.lateCount || 0, color: "#f59e0b" },
   ];
 
   const classData = data?.classBreakdown || [];
@@ -182,8 +182,8 @@ export default function ReportsPage() {
 
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-sm flex items-center justify-between">
           <div>
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Present Sessions</span>
-            <div className="text-2xl font-extrabold text-slate-900">{summary.presentCount}</div>
+            <span className="text-[10px] font-bold text-slate-500 uppercase">វត្តមានសរុប (✓ / Present)</span>
+            <div className="text-2xl font-extrabold text-slate-900">{summary.presentCount} ដង</div>
             <span className="text-[11px] text-emerald-600 font-semibold">Verified Marks</span>
           </div>
           <div className="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center">
@@ -193,9 +193,9 @@ export default function ReportsPage() {
 
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-sm flex items-center justify-between">
           <div>
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Total Absences</span>
-            <div className="text-2xl font-extrabold text-red-600">{summary.absentCount}</div>
-            <span className="text-[11px] text-slate-400">Unexcused</span>
+            <span className="text-[10px] font-bold text-slate-500 uppercase">ឈប់អត់ច្បាប់ (A / Absent)</span>
+            <div className="text-2xl font-extrabold text-red-600">{summary.absentCount} ដង</div>
+            <span className="text-[11px] text-red-500 font-semibold">Unexcused Absences</span>
           </div>
           <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
             <UserX className="w-5 h-5" />
@@ -204,13 +204,13 @@ export default function ReportsPage() {
 
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-sm flex items-center justify-between">
           <div>
-            <span className="text-[10px] font-bold text-slate-500 uppercase">Late &amp; Excused</span>
-            <div className="text-2xl font-extrabold text-amber-600">
-              {summary.lateCount + summary.excusedCount}
+            <span className="text-[10px] font-bold text-slate-500 uppercase">ឈប់មានច្បាប់ (P / Leave)</span>
+            <div className="text-2xl font-extrabold text-blue-600">
+              {summary.excusedCount} ដង
             </div>
-            <span className="text-[11px] text-slate-400">Tardy / Leave</span>
+            <span className="text-[11px] text-slate-400">{summary.lateCount} ដង មកយឺត (Late)</span>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
             <Clock className="w-5 h-5" />
           </div>
         </div>
@@ -293,8 +293,8 @@ export default function ReportsPage() {
                   <th className="py-2.5 px-3">Student</th>
                   <th className="py-2.5 px-3">ID</th>
                   <th className="py-2.5 px-3">Class</th>
-                  <th className="py-2.5 px-3">Sessions</th>
-                  <th className="py-2.5 px-3">Absences</th>
+                  <th className="py-2.5 px-3">Sessions (ដងសរុប)</th>
+                  <th className="py-2.5 px-3 text-red-700 bg-red-50/50">ឈប់អត់ច្បាប់ (A)</th>
                   <th className="py-2.5 px-3">Rate</th>
                   <th className="py-2.5 px-3 text-right">Intervention Status</th>
                 </tr>
@@ -305,8 +305,8 @@ export default function ReportsPage() {
                     <td className="py-3 px-3 font-bold text-slate-900">{st.studentName}</td>
                     <td className="py-3 px-3 font-mono text-slate-600">{st.studentNumber}</td>
                     <td className="py-3 px-3 text-slate-600">{st.className}</td>
-                    <td className="py-3 px-3">{st.totalSessions}</td>
-                    <td className="py-3 px-3 font-bold text-red-600">{st.absentCount}</td>
+                    <td className="py-3 px-3">{st.totalSessions} ដង</td>
+                    <td className="py-3 px-3 font-extrabold text-red-600 bg-red-50/30">{st.absentCount} ដង</td>
                     <td className="py-3 px-3 font-extrabold text-red-600">{st.rate}%</td>
                     <td className="py-3 px-3 text-right">
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800 border border-red-300">

@@ -114,7 +114,7 @@ export class AttendanceMarkRecognitionService {
       };
     }
 
-    // 5. Letter 'P' or 'E'
+    // 5. Letter 'P' (Permission / ឈប់មានច្បាប់)
     if (
       features.pixelDensity >= 2.5 &&
       features.pixelDensity <= 13.0 &&
@@ -123,7 +123,7 @@ export class AttendanceMarkRecognitionService {
     ) {
       return {
         symbol: "P",
-        status: "PRESENT",
+        status: "EXCUSED",
         confidence: 0.82,
         isAmbiguous: false,
         isEmpty: false,
@@ -160,16 +160,17 @@ export class AttendanceMarkRecognitionService {
       case "✓":
       case "/":
       case "V":
-      case "P":
         return "PRESENT";
       case "A":
       case "X":
         return "ABSENT";
+      case "P":
+      case "E":
+      case "C":
+        return "EXCUSED";
       case "L":
       case "T":
         return "LATE";
-      case "E":
-        return "EXCUSED";
       case "?":
       default:
         return "NEEDS_REVIEW";

@@ -26,6 +26,7 @@ import {
   ArrowRight,
   ChevronDown,
   Layers,
+  Calendar,
 } from "lucide-react";
 import { ScanCellModel, AttendanceSheetModel } from "@/lib/db-store";
 
@@ -63,8 +64,32 @@ export default function ReviewWorkspacePage() {
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [showBoundingBoxes, setShowBoundingBoxes] = useState(true);
   const imageContainerRef = useRef<HTMLDivElement>(null);
+  // Image natural dimensions
+  const [imgDims, setImgDims] = useState<{ width: number; height: number }>({ width: 1100, height: 850 });
 
-  // Load Sheet data
+  // Gemini AI Reprocess state
+  const [showReprocessModal, setShowReprocessModal] = useState(false);
+  const [reprocessKey, setReprocessKey] = useState("");
+  const [reprocessing, setReprocessing] = useState(false);
+  const [reprocessError, setReprocessError] = useState("");
+  const [geminiConfigured, setGeminiConfigured] = useState(false);
+  const [geminiMaskedKey, setGeminiMaskedKey] = useState("");
+  const [viewingStudentRow, setViewingStudentRow] = useState<any | null>(null);
+
+  const checkAiConfig = useCallback(() => {
+    fetch("/api/settings/ai")
+      .then((r) => r.json())
+      .then((d) => {
+        setGeminiConfigured(!!d.configured);
+        setGeminiMaskedKey(d.maskedKey || "");
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    checkAiConfig();
+  }, [checkAiConfig]);
+
   useEffect(() => {
     fetch(`/api/scans/${sheetId}/results`)
       .then((res) => {
@@ -187,9 +212,45 @@ export default function ReviewWorkspacePage() {
     // Zoom and center on the cell bounding box
     if (cell.cellBoundingBox) {
       const { x, y, w, h } = cell.cellBoundingBox;
-      // Center calculation inside viewer
-      setPanX(-(x + w / 2 - 550) * zoomLevel);
-      setPanY(-(y + h / 2 - 425) * zoomLevel);
+      // Center calculation inside viewer using real image dimensions
+      setPanX(-(x + w / 2 - imgDims.width / 2) * zoomLevel);
+      setPanY(-(y + h / 2 - imgDims.height / 2) * zoomLevel);
+    }
+  };
+
+  // Reprocess existing sheet with Gemini AI Multimodal Vision
+  const handleReprocessWithGemini = async () => {
+    setReprocessing(true);
+    setReprocessError("");
+    try {
+      const res = await fetch(`/api/scans/${sheetId}/process`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          geminiApiKey: reprocessKey.trim() || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to process scan with Gemini");
+      }
+
+      // Reload results
+      const resultsRes = await fetch(`/api/scans/${sheetId}/results`);
+      const resultsData = await resultsRes.json();
+      setSheet(resultsData.sheet);
+      setCells(resultsData.cells || []);
+      if (resultsData.cells?.length > 0) {
+        setSelectedCellId(resultsData.cells[0].id);
+        setSelectedRowIndex(resultsData.cells[0].rowIndex);
+      }
+      setShowReprocessModal(false);
+      checkAiConfig();
+    } catch (err: any) {
+      setReprocessError(err.message || "Failed to reprocess image");
+    } finally {
+      setReprocessing(false);
     }
   };
 
@@ -254,17 +315,20 @@ export default function ReviewWorkspacePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          verifiedById: "usr_teacher_chang",
+          verifiedById: "usr_teacher",
         }),
       });
 
-      if (!res.ok) throw new Error("Confirmation failed");
+      const confirmData = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(confirmData.error || "Confirmation failed");
+      }
 
       setShowConfirmModal(false);
       router.push("/attendance");
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert("Failed to confirm attendance.");
+      alert(err.message || "Failed to confirm attendance.");
     } finally {
       setConfirming(false);
     }
@@ -291,7 +355,32 @@ export default function ReviewWorkspacePage() {
   };
   const handleMouseUp = () => setIsPanning(false);
 
+  // Dynamic column headers detected across the attendance sheet
+  const distinctColumns = useMemo(() => {
+    const colMap = new Map<number, { period: number; label: string; date?: string }>();
+    cells.forEach((c) => {
+      const idx = typeof c.columnIndex === "number" ? c.columnIndex : (c.period - 1);
+      if (!colMap.has(idx)) {
+        colMap.set(idx, {
+          period: c.period,
+          label: `Period ${c.period}`,
+          date: c.dateString,
+        });
+      }
+    });
+    const sorted = Array.from(colMap.entries()).sort((a, b) => a[0] - b[0]);
+    if (sorted.length === 0) {
+      return [
+        { key: 0, period: 1, label: "Period 1" },
+        { key: 1, period: 2, label: "Period 2" },
+        { key: 2, period: 3, label: "Period 3" },
+      ];
+    }
+    return sorted.map(([key, val]) => ({ key, ...val }));
+  }, [cells]);
+
   // Group cells by Student Rows for spreadsheet display
+  // រាប់តាមជួរដេក (Count horizontally along row): A = ឈប់អត់ច្បាប់, ✓ / P = វត្តមាន
   const rowsMap = useMemo(() => {
     const map = new Map<number, ScanCellModel[]>();
     cells.forEach((cell) => {
@@ -301,13 +390,52 @@ export default function ReviewWorkspacePage() {
     });
     return Array.from(map.entries())
       .map(([rowIndex, rowCells]) => {
-        rowCells.sort((a, b) => a.period - b.period);
+        rowCells.sort((a, b) => (a.columnIndex ?? a.period) - (b.columnIndex ?? b.period));
+
+        // រាប់តាមជួរដេក: ចំនួនដងឈប់អត់ច្បាប់ (A)
+        const absentCount = rowCells.filter(
+          (c) =>
+            c.interpretedStatus === "ABSENT" ||
+            c.recognizedSymbol?.toUpperCase() === "A"
+        ).length;
+
+        // រាប់តាមជួរដេក: ចំនួនដងឈប់មានច្បាប់ (P)
+        const excusedCount = rowCells.filter(
+          (c) =>
+            c.interpretedStatus === "EXCUSED" ||
+            c.recognizedSymbol?.toUpperCase() === "P" ||
+            c.recognizedSymbol?.toUpperCase() === "E" ||
+            c.recognizedSymbol?.toUpperCase() === "C"
+        ).length;
+
+        // រាប់តាមជួរដេក: ចំនួនដងមានវត្តមាន (✓)
+        const presentCount = rowCells.filter(
+          (c) =>
+            c.interpretedStatus === "PRESENT" ||
+            c.recognizedSymbol === "✓" ||
+            c.recognizedSymbol === "/"
+        ).length;
+
+        const lateCount = rowCells.filter(
+          (c) =>
+            c.interpretedStatus === "LATE" ||
+            c.recognizedSymbol?.toUpperCase() === "L"
+        ).length;
+
+        const totalMarked = absentCount + excusedCount + presentCount + lateCount;
+
         return {
           rowIndex,
           studentName: rowCells[0]?.matchedStudentName || rowCells[0]?.rawStudentName || `Student ${rowIndex + 1}`,
           studentNumber: rowCells[0]?.rawStudentNumber || `STU-${1001 + rowIndex}`,
           gender: rowCells[0]?.gender || "M",
           cells: rowCells,
+          absentCount,    // ឈប់អត់ច្បាប់ (A)
+          excusedCount,   // ឈប់មានច្បាប់ (P)
+          presentCount,   // វត្តមាន (✓)
+          lateCount,      // មកយឺត (L)
+          totalMarked,
+          totalCount: rowCells.length,
         };
       })
       .filter((row) => {
@@ -328,6 +456,31 @@ export default function ReviewWorkspacePage() {
     const needsReview = cells.filter((c) => c.interpretedStatus === "NEEDS_REVIEW" || c.reviewStatus === "NEEDS_REVIEW").length;
     const emptyCount = cells.filter((c) => c.interpretedStatus === "UNMARKED").length;
     const uniqueStudents = new Set(cells.map((c) => c.rowIndex)).size;
+
+    // សរុបឈប់អត់ច្បាប់ (Total A - Unexcused Absence)
+    const totalAbsent = cells.filter(
+      (c) =>
+        c.interpretedStatus === "ABSENT" ||
+        c.recognizedSymbol?.toUpperCase() === "A"
+    ).length;
+
+    // សរុបឈប់មានច្បាប់ (Total P - Permission / Excused)
+    const totalExcused = cells.filter(
+      (c) =>
+        c.interpretedStatus === "EXCUSED" ||
+        c.recognizedSymbol?.toUpperCase() === "P" ||
+        c.recognizedSymbol?.toUpperCase() === "E" ||
+        c.recognizedSymbol?.toUpperCase() === "C"
+    ).length;
+
+    // សរុបវត្តមាន (Total ✓ - Present)
+    const totalPresent = cells.filter(
+      (c) =>
+        c.interpretedStatus === "PRESENT" ||
+        c.recognizedSymbol === "✓" ||
+        c.recognizedSymbol === "/"
+    ).length;
+
     return {
       totalCells,
       highConf,
@@ -335,6 +488,9 @@ export default function ReviewWorkspacePage() {
       needsReview,
       emptyCount,
       uniqueStudents,
+      totalAbsent,
+      totalExcused,
+      totalPresent,
       percentVerified: totalCells > 0 ? Math.round(((totalCells - needsReview) / totalCells) * 100) : 100,
     };
   }, [cells]);
@@ -407,6 +563,19 @@ export default function ReviewWorkspacePage() {
             Review Next Error ({stats.needsReview})
           </button>
 
+          {/* Reprocess with Gemini AI */}
+          <button
+            onClick={() => {
+              setReprocessError("");
+              setShowReprocessModal(true);
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-300 text-xs font-bold transition-all shadow-sm"
+            title="Reprocess this sheet using Google Gemini Multimodal AI"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+            ⚡ Reprocess with Gemini AI
+          </button>
+
           {/* Save Draft */}
           <button
             onClick={handleSaveDraft}
@@ -428,30 +597,30 @@ export default function ReviewWorkspacePage() {
         </div>
       </div>
 
-      {/* Review Summary Metrics Bar */}
+      {/* Review Summary Metrics Bar with Khmer/English tally counts */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold uppercase text-slate-500">Students Found</span>
-          <div className="text-lg font-extrabold text-slate-900">{stats.uniqueStudents}</div>
+          <span className="text-[10px] font-bold uppercase text-slate-500">សិស្សសរុប (Students)</span>
+          <div className="text-lg font-extrabold text-slate-900">{stats.uniqueStudents} នាក់</div>
+        </div>
+        <div className="bg-white p-3 rounded-xl border border-red-200 bg-red-50/30 shadow-xs">
+          <span className="text-[10px] font-bold uppercase text-red-600">ឈប់អត់ច្បាប់ (A)</span>
+          <div className="text-lg font-extrabold text-red-600">{stats.totalAbsent} ដង</div>
+        </div>
+        <div className="bg-white p-3 rounded-xl border border-blue-200 bg-blue-50/30 shadow-xs">
+          <span className="text-[10px] font-bold uppercase text-blue-600">ឈប់មានច្បាប់ (P)</span>
+          <div className="text-lg font-extrabold text-blue-600">{stats.totalExcused} ដង</div>
+        </div>
+        <div className="bg-white p-3 rounded-xl border border-emerald-200 bg-emerald-50/30 shadow-xs">
+          <span className="text-[10px] font-bold uppercase text-emerald-600">វត្តមាន (✓)</span>
+          <div className="text-lg font-extrabold text-emerald-600">{stats.totalPresent} ដង</div>
         </div>
         <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold uppercase text-slate-500">Total Cells</span>
-          <div className="text-lg font-extrabold text-slate-900">{stats.totalCells}</div>
-        </div>
-        <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold uppercase text-emerald-600">High Confidence</span>
-          <div className="text-lg font-extrabold text-emerald-600">{stats.highConf}</div>
-        </div>
-        <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold uppercase text-amber-600">Needs Review</span>
+          <span className="text-[10px] font-bold uppercase text-amber-600">ត្រូវពិនិត្យ (Review)</span>
           <div className="text-lg font-extrabold text-amber-600">{stats.needsReview}</div>
         </div>
         <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold uppercase text-slate-500">Unmarked Cells</span>
-          <div className="text-lg font-extrabold text-slate-700">{stats.emptyCount}</div>
-        </div>
-        <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold uppercase text-sky-600">Verification Rate</span>
+          <span className="text-[10px] font-bold uppercase text-sky-600">អត្រាផ្ទៀងផ្ទាត់ (Rate)</span>
           <div className="text-lg font-extrabold text-sky-600">{stats.percentVerified}%</div>
         </div>
       </div>
@@ -526,14 +695,21 @@ export default function ReviewWorkspacePage() {
               <img
                 src={sheet?.imageStorageKey || "/samples/attendance_sheet_sample.svg"}
                 alt="Original Attendance Sheet"
-                className="max-w-none w-[1100px] h-[850px] pointer-events-none rounded shadow-2xl"
+                onLoad={(e) => {
+                  const target = e.currentTarget;
+                  if (target.naturalWidth && target.naturalHeight) {
+                    setImgDims({ width: target.naturalWidth, height: target.naturalHeight });
+                  }
+                }}
+                style={{ width: imgDims.width, height: imgDims.height }}
+                className="max-w-none pointer-events-none rounded shadow-2xl"
               />
 
               {/* Bounding Box Overlays */}
               {showBoundingBoxes && (
                 <svg
                   className="absolute inset-0 w-full h-full pointer-events-none"
-                  viewBox="0 0 1100 850"
+                  viewBox={`0 0 ${imgDims.width} ${imgDims.height}`}
                 >
                   {cells.map((cell) => {
                     const isSelected = cell.id === selectedCellId;
@@ -690,13 +866,19 @@ export default function ReviewWorkspacePage() {
                     onClick={() => handleBulkStatus("PRESENT")}
                     className="px-2 py-1 rounded bg-emerald-600 text-white font-semibold text-[11px] hover:bg-emerald-500"
                   >
-                    Mark Present
+                    ✓ Mark Present
                   </button>
                   <button
                     onClick={() => handleBulkStatus("ABSENT")}
                     className="px-2 py-1 rounded bg-red-600 text-white font-semibold text-[11px] hover:bg-red-500"
                   >
-                    Mark Absent
+                    A Mark Absent
+                  </button>
+                  <button
+                    onClick={() => handleBulkStatus("EXCUSED")}
+                    className="px-2 py-1 rounded bg-blue-600 text-white font-semibold text-[11px] hover:bg-blue-500"
+                  >
+                    P Mark Excused (មានច្បាប់)
                   </button>
                   <button
                     onClick={() => setSelectedCellIds(new Set())}
@@ -715,11 +897,27 @@ export default function ReviewWorkspacePage() {
               <thead className="bg-slate-50 sticky top-0 z-10 border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px] tracking-wider">
                 <tr>
                   <th className="py-2.5 px-3 w-8">#</th>
-                  <th className="py-2.5 px-3">Student Name &amp; ID</th>
-                  <th className="py-2.5 px-2 text-center w-12">Sex</th>
-                  <th className="py-2.5 px-3 text-center">Period 1</th>
-                  <th className="py-2.5 px-3 text-center">Period 2</th>
-                  <th className="py-2.5 px-3 text-center">Period 3</th>
+                  <th className="py-2.5 px-3 min-w-[130px]">ឈ្មោះសិស្ស &amp; អត្តលេខ</th>
+                  <th className="py-2.5 px-2 text-center w-12">ភេទ</th>
+                  {distinctColumns.map((col, idx) => (
+                    <th key={col.key ?? idx} className="py-2.5 px-3 text-center min-w-[85px]">
+                      <div>{col.label}</div>
+                      {col.date && <div className="text-[9px] font-normal text-slate-400 font-mono">{col.date}</div>}
+                    </th>
+                  ))}
+                  {/* TALLY COLUMNS: រាប់តាមជួរដេក (Count along row) */}
+                  <th className="py-2.5 px-3 text-center bg-red-50 text-red-800 min-w-[110px] border-l border-red-200 font-extrabold">
+                    ឈប់អត់ច្បាប់ (A)
+                  </th>
+                  <th className="py-2.5 px-3 text-center bg-blue-50 text-blue-800 min-w-[110px] border-l border-blue-200 font-extrabold">
+                    ឈប់មានច្បាប់ (P)
+                  </th>
+                  <th className="py-2.5 px-3 text-center bg-emerald-50 text-emerald-800 min-w-[100px] border-l border-emerald-200 font-extrabold">
+                    វត្តមាន (✓)
+                  </th>
+                  <th className="py-2.5 px-3 text-center min-w-[70px] border-l border-slate-200 font-bold">
+                    សរុបដង
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -739,9 +937,22 @@ export default function ReviewWorkspacePage() {
 
                       {/* Student Info */}
                       <td className="py-3 px-3">
-                        <div className="font-bold text-slate-900">{row.studentName}</div>
-                        <div className="text-[11px] text-slate-500 font-mono">
-                          {row.studentNumber}
+                        <button
+                          onClick={() => setViewingStudentRow(row)}
+                          className="font-bold text-slate-900 hover:text-sky-600 hover:underline text-left block"
+                          title="មើលសិស្សម្នាក់ៗ (View Individual Student)"
+                        >
+                          {row.studentName}
+                        </button>
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-mono mt-0.5">
+                          <span>{row.studentNumber}</span>
+                          <button
+                            onClick={() => setViewingStudentRow(row)}
+                            className="text-[10px] text-sky-600 font-bold hover:underline bg-sky-50 px-1 rounded border border-sky-200"
+                            title="មើលវត្តមានសិស្សម្នាក់ៗ"
+                          >
+                            មើលសិស្ស
+                          </button>
                         </div>
                       </td>
 
@@ -750,10 +961,9 @@ export default function ReviewWorkspacePage() {
                         {row.gender}
                       </td>
 
-                      {/* Periods 1, 2, 3 Attendance Cells */}
+                      {/* Attendance Cells along the row */}
                       {row.cells.map((cell) => {
                         const isCellSelected = cell.id === selectedCellId;
-                        const isChecked = selectedCellIds.has(cell.id);
                         const isLow = cell.confidenceScore < 0.75 || cell.interpretedStatus === "NEEDS_REVIEW";
 
                         // Status Color Mapping
@@ -762,7 +972,7 @@ export default function ReviewWorkspacePage() {
                             case "PRESENT":
                               return "bg-emerald-50 text-emerald-700 border-emerald-300";
                             case "ABSENT":
-                              return "bg-red-50 text-red-700 border-red-300";
+                              return "bg-red-50 text-red-700 border-red-300 font-extrabold";
                             case "LATE":
                               return "bg-amber-50 text-amber-700 border-amber-300";
                             case "EXCUSED":
@@ -782,7 +992,7 @@ export default function ReviewWorkspacePage() {
                             onClick={() => handleSelectCell(cell)}
                           >
                             <div className="flex flex-col items-center gap-1">
-                              {/* Status Select Dropdown */}
+                              {/* Status Select Dropdown with Khmer & English */}
                               <select
                                 value={cell.interpretedStatus}
                                 onChange={(e) =>
@@ -790,16 +1000,16 @@ export default function ReviewWorkspacePage() {
                                 }
                                 className={`text-[11px] font-bold py-1 px-2 rounded-lg border focus:outline-none focus:ring-1 focus:ring-sky-500 cursor-pointer shadow-xs ${getStatusBadge()}`}
                               >
-                                <option value="PRESENT">✓ Present</option>
-                                <option value="ABSENT">A Absent</option>
-                                <option value="LATE">L Late</option>
-                                <option value="EXCUSED">E Excused</option>
-                                <option value="NEEDS_REVIEW">? Review</option>
+                                <option value="PRESENT">✓ វត្តមាន (Present)</option>
+                                <option value="ABSENT">A ឈប់អត់ច្បាប់ (Absent)</option>
+                                <option value="EXCUSED">P ឈប់មានច្បាប់ (Permission)</option>
+                                <option value="LATE">L មកយឺត (Late)</option>
+                                <option value="NEEDS_REVIEW">? ពិនិត្យ (Review)</option>
                               </select>
 
                               {/* Confidence indicator pill */}
                               <div className="flex items-center gap-1 text-[10px]">
-                                <span className="font-mono text-slate-400">
+                                <span className="font-mono text-slate-400 font-bold">
                                   &quot;{cell.recognizedSymbol}&quot;
                                 </span>
                                 <span
@@ -814,6 +1024,49 @@ export default function ReviewWorkspacePage() {
                           </td>
                         );
                       })}
+
+                      {/* Row Tally: ឈប់អត់ច្បាប់ (A) */}
+                      <td className="py-2.5 px-3 text-center bg-red-50/40 border-l border-red-200">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-1 rounded-full font-extrabold text-xs shadow-xs ${
+                            row.absentCount > 0
+                              ? "bg-red-100 text-red-800 border border-red-300"
+                              : "bg-slate-100 text-slate-500"
+                          }`}
+                          title={`ឈប់អត់ច្បាប់ (A): ${row.absentCount} ដង`}
+                        >
+                          {row.absentCount} ដង
+                        </span>
+                      </td>
+
+                      {/* Row Tally: ឈប់មានច្បាប់ (P) */}
+                      <td className="py-2.5 px-3 text-center bg-blue-50/40 border-l border-blue-200">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-1 rounded-full font-extrabold text-xs shadow-xs ${
+                            row.excusedCount > 0
+                              ? "bg-blue-100 text-blue-800 border border-blue-300"
+                              : "bg-slate-100 text-slate-500"
+                          }`}
+                          title={`ឈប់មានច្បាប់ (P): ${row.excusedCount} ដង`}
+                        >
+                          {row.excusedCount} ដង
+                        </span>
+                      </td>
+
+                      {/* Row Tally: វត្តមាន (✓) */}
+                      <td className="py-2.5 px-3 text-center bg-emerald-50/40 border-l border-emerald-200">
+                        <span
+                          className="inline-flex items-center px-2.5 py-1 rounded-full font-extrabold text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs"
+                          title={`វត្តមាន (✓): ${row.presentCount} ដង`}
+                        >
+                          {row.presentCount} ដង
+                        </span>
+                      </td>
+
+                      {/* Row Tally: Total sessions */}
+                      <td className="py-2.5 px-3 text-center font-bold text-slate-700 border-l border-slate-200 text-xs">
+                        {row.totalCount} ដង
+                      </td>
                     </tr>
                   );
                 })}
@@ -822,6 +1075,156 @@ export default function ReviewWorkspacePage() {
           </div>
         </div>
       </div>
+
+      {/* Individual Student Row Details Modal (មើលសិស្សម្នាក់ៗ ក្នុង Review) */}
+      {viewingStudentRow && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-sky-100 text-sky-700 font-extrabold text-base flex items-center justify-center shadow-inner">
+                  {viewingStudentRow.gender === "F" ? "👩‍🎓" : "👨‍🎓"}
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base leading-tight">
+                    {viewingStudentRow.studentName}
+                  </h3>
+                  <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-500">
+                    <span className="font-mono font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md border border-sky-200">
+                      {viewingStudentRow.studentNumber}
+                    </span>
+                    <span>• ភេទ: {viewingStudentRow.gender === "F" ? "ស្រី (F)" : "ប្រុស (M)"}</span>
+                    <span>• ជួរទី #{viewingStudentRow.rowIndex + 1}</span>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingStudentRow(null)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center font-bold text-sm transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Attendance Tallies for this student along the row */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-emerald-50/60 p-3 rounded-2xl border border-emerald-200 text-center">
+                <span className="text-[10px] font-bold uppercase text-emerald-700">វត្តមាន (✓)</span>
+                <div className="text-xl font-extrabold text-emerald-600 mt-0.5">
+                  {viewingStudentRow.presentCount} ដង
+                </div>
+              </div>
+              <div className="bg-red-50/60 p-3 rounded-2xl border border-red-200 text-center">
+                <span className="text-[10px] font-bold uppercase text-red-700">ឈប់អត់ច្បាប់ (A)</span>
+                <div className="text-xl font-extrabold text-red-600 mt-0.5">
+                  {viewingStudentRow.absentCount} ដង
+                </div>
+              </div>
+              <div className="bg-blue-50/60 p-3 rounded-2xl border border-blue-200 text-center">
+                <span className="text-[10px] font-bold uppercase text-blue-700">ឈប់មានច្បាប់ (P)</span>
+                <div className="text-xl font-extrabold text-blue-600 mt-0.5">
+                  {viewingStudentRow.excusedCount} ដង
+                </div>
+              </div>
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 text-center">
+                <span className="text-[10px] font-bold uppercase text-slate-600">សរុបដង</span>
+                <div className="text-xl font-extrabold text-slate-900 mt-0.5">
+                  {viewingStudentRow.totalCount} ដង
+                </div>
+              </div>
+            </div>
+
+            {/* All cells list for this student */}
+            <div className="space-y-2 flex-1 overflow-y-auto pr-1">
+              <h4 className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-sky-600" /> មុខវិជ្ជា និងម៉ោងទាំងអស់របស់សិស្សនេះ (Horizontal Session Grid)
+              </h4>
+
+              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px]">
+                    <tr>
+                      <th className="py-2 px-3">មុខវិជ្ជា / Session</th>
+                      <th className="py-2 px-3 text-center">និមិត្តសញ្ញា</th>
+                      <th className="py-2 px-3 text-center">ទំនុកចិត្ត (Conf)</th>
+                      <th className="py-2 px-3">ស្ថានភាពវត្តមាន</th>
+                      <th className="py-2 px-3 text-right">សកម្មភាព</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {viewingStudentRow.cells.map((cell: any, cIdx: number) => {
+                      const colLabel = distinctColumns[cIdx]?.label || `Period ${cell.period || cIdx + 1}`;
+                      const colDate = distinctColumns[cIdx]?.date || cell.dateString;
+
+                      return (
+                        <tr key={cell.id} className="hover:bg-slate-50/70">
+                          <td className="py-2.5 px-3">
+                            <div className="font-bold text-slate-800">{colLabel}</div>
+                            {colDate && <div className="text-[10px] text-slate-400 font-mono">{colDate}</div>}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-700">
+                            &quot;{cell.recognizedSymbol || "—"}&quot;
+                          </td>
+                          <td className="py-2.5 px-3 text-center text-slate-500 font-medium text-[11px]">
+                            {Math.round(cell.confidenceScore * 100)}%
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <select
+                              value={cell.interpretedStatus}
+                              onChange={(e) => {
+                                handleUpdateStatus(cell.id, e.target.value as any);
+                                setViewingStudentRow((prev: any) => {
+                                  if (!prev) return null;
+                                  const updatedCells = prev.cells.map((c: any) =>
+                                    c.id === cell.id ? { ...c, interpretedStatus: e.target.value } : c
+                                  );
+                                  const absentCount = updatedCells.filter((c: any) => c.interpretedStatus === "ABSENT" || c.recognizedSymbol?.toUpperCase() === "A").length;
+                                  const excusedCount = updatedCells.filter((c: any) => c.interpretedStatus === "EXCUSED" || c.recognizedSymbol?.toUpperCase() === "P").length;
+                                  const presentCount = updatedCells.filter((c: any) => c.interpretedStatus === "PRESENT" || c.recognizedSymbol === "✓").length;
+                                  return { ...prev, cells: updatedCells, absentCount, excusedCount, presentCount };
+                                });
+                              }}
+                              className="text-[11px] font-bold py-1 px-2 rounded-lg border border-slate-300 bg-white focus:ring-1 focus:ring-sky-500"
+                            >
+                              <option value="PRESENT">✓ វត្តមាន (Present)</option>
+                              <option value="ABSENT">A ឈប់អត់ច្បាប់ (Absent)</option>
+                              <option value="EXCUSED">P ឈប់មានច្បាប់ (Permission)</option>
+                              <option value="LATE">L មកយឺត (Late)</option>
+                              <option value="NEEDS_REVIEW">? ពិនិត្យ (Review)</option>
+                            </select>
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <button
+                              onClick={() => {
+                                handleSelectCell(cell);
+                                setViewingStudentRow(null);
+                              }}
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-600 hover:text-sky-700 hover:underline"
+                            >
+                              <Crosshair className="w-3 h-3" /> ឆ្លុះមើលក្រឡា
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setViewingStudentRow(null)}
+                className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-colors"
+              >
+                បិទ (Close)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Confirmation Modal */}
       {showConfirmModal && (
@@ -877,6 +1280,118 @@ export default function ReviewWorkspacePage() {
                 className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow-md shadow-sky-600/30 flex items-center gap-1.5"
               >
                 {confirming ? "Finalizing..." : "Yes, Confirm Attendance"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reprocess with Gemini AI Modal */}
+      {showReprocessModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center shrink-0 mt-0.5">
+                <Sparkles className="w-6 h-6 text-purple-600" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                  Reprocess with Gemini AI Vision
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
+                    Multimodal
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Analyze this exact attendance sheet with Google Gemini Vision to read handwritten student names, sexes, and roll-call marks.
+                </p>
+              </div>
+            </div>
+
+            {/* Key Status Info */}
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-slate-700">API Connection Status:</span>
+                {geminiConfigured ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Key Active ({geminiMaskedKey})
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                    <AlertTriangle className="w-3 h-3 text-amber-600" /> No Key Saved
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500">
+                {geminiConfigured
+                  ? "You can run recognition immediately using the saved key, or override it by entering a new key below."
+                  : "Enter your Google Gemini API key to begin. New keys will be validated and saved for future scans."}
+              </p>
+            </div>
+
+            {/* API Key Input */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700">
+                Gemini API Key {!geminiConfigured && <span className="text-red-500">*</span>}
+              </label>
+              <input
+                type="password"
+                placeholder={
+                  geminiConfigured
+                    ? "Leave blank to use saved key, or paste new key..."
+                    : "Paste your API key (AIzaSy...)"
+                }
+                value={reprocessKey}
+                onChange={(e) => setReprocessKey(e.target.value)}
+                className="w-full text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+              <div className="flex justify-between items-center text-[11px] pt-1">
+                <span className="text-slate-400">Model: Gemini 1.5 Flash (Vision)</span>
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-purple-600 hover:text-purple-800 font-semibold underline flex items-center gap-1"
+                >
+                  Get Free Key from Google AI Studio ↗
+                </a>
+              </div>
+            </div>
+
+            {/* Error Message */}
+            {reprocessError && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                <span className="break-all">{reprocessError}</span>
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={reprocessing}
+                onClick={() => setShowReprocessModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={reprocessing || (!geminiConfigured && !reprocessKey.trim())}
+                onClick={handleReprocessWithGemini}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold shadow-md shadow-purple-600/30 flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {reprocessing ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Analyzing Image with Gemini Vision...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Run Gemini Recognition</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

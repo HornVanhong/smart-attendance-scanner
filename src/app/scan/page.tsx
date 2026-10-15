@@ -18,6 +18,9 @@ import {
   ArrowRight,
   Info,
   PlusCircle,
+  Key,
+  Sparkles,
+  ExternalLink,
 } from "lucide-react";
 import { ImagePreprocessingService } from "@/services/image-preprocessing.service";
 
@@ -28,6 +31,14 @@ export default function ScanAttendancePage() {
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+
+  // Gemini API Key state
+  const [geminiConfigured, setGeminiConfigured] = useState(false);
+  const [maskedKey, setMaskedKey] = useState("");
+  const [showKeyInput, setShowKeyInput] = useState(false);
+  const [geminiKeyInput, setGeminiKeyInput] = useState("");
+  const [isSavingKey, setIsSavingKey] = useState(false);
+  const [keyFeedback, setKeyFeedback] = useState<string | null>(null);
 
   // Preprocessing controls
   const [rotationAngle, setRotationAngle] = useState(0);
@@ -45,6 +56,15 @@ export default function ScanAttendancePage() {
   const [subjectsList, setSubjectsList] = useState<any[]>([]);
 
   useEffect(() => {
+    // Check Gemini API key status
+    fetch("/api/settings/ai")
+      .then((res) => res.json())
+      .then((d) => {
+        setGeminiConfigured(d.configured);
+        setMaskedKey(d.maskedKey || "");
+      })
+      .catch(() => {});
+
     fetch("/api/classes")
       .then((res) => res.json())
       .then((d) => {
@@ -63,6 +83,32 @@ export default function ScanAttendancePage() {
       })
       .catch(() => {});
   }, []);
+
+  const handleSaveGeminiKey = async () => {
+    if (!geminiKeyInput.trim()) return;
+    setIsSavingKey(true);
+    setKeyFeedback(null);
+    try {
+      const res = await fetch("/api/settings/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: geminiKeyInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to verify key");
+
+      setGeminiConfigured(true);
+      setShowKeyInput(false);
+      setMaskedKey(geminiKeyInput.trim().slice(0, 4) + "••••••••" + geminiKeyInput.trim().slice(-4));
+      setGeminiKeyInput("");
+      setKeyFeedback("✓ Gemini API key verified & connected!");
+      setTimeout(() => setKeyFeedback(null), 4000);
+    } catch (err: any) {
+      setKeyFeedback(err.message || "Failed to verify key");
+    } finally {
+      setIsSavingKey(false);
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -138,7 +184,7 @@ export default function ScanAttendancePage() {
       // 3. OCR Header & Student Columns
       setProcessingStep(3);
 
-      // 4. Classifying handwritten marks
+      // 4. Classifying handwritten marks with Gemini Vision or OCR
       setProcessingStep(4);
       const processRes = await fetch(`/api/scans/${scanId}/process`, {
         method: "POST",
@@ -184,7 +230,7 @@ export default function ScanAttendancePage() {
             Scan &amp; Digitize Attendance Sheet
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Upload a real photo of your classroom attendance sheet for OCR table segmentation and mark recognition.
+            Upload paper attendance sheets, calibrate image angles, and run AI mark classification.
           </p>
         </div>
 
@@ -195,6 +241,97 @@ export default function ScanAttendancePage() {
           >
             <PlusCircle className="w-4 h-4 text-amber-600" /> Create Your First Class
           </Link>
+        )}
+      </div>
+
+      {/* GEMINI AI API KEY CONNECTION BANNER */}
+      <div className={`p-4 rounded-2xl border transition-all ${
+        geminiConfigured
+          ? "bg-gradient-to-r from-emerald-50 to-teal-50 border-emerald-200 text-emerald-900"
+          : "bg-gradient-to-r from-indigo-50/80 via-sky-50 to-teal-50 border-sky-300 text-slate-800"
+      }`}>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
+              geminiConfigured ? "bg-emerald-600 text-white" : "bg-sky-600 text-white"
+            }`}>
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-sm">
+                  {geminiConfigured ? "Google Gemini AI Vision Connected" : "Connect Google Gemini API Key"}
+                </h3>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  geminiConfigured ? "bg-emerald-100 text-emerald-800 border border-emerald-300" : "bg-amber-100 text-amber-800 border border-amber-300"
+                }`}>
+                  {geminiConfigured ? "Active (Gemini 1.5 Flash)" : "Recommended"}
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 mt-0.5">
+                {geminiConfigured
+                  ? `Key: ${maskedKey} • Multimodal vision recognizes handwritten names, checkmarks, and complex tables.`
+                  : "Enable Gemini Vision to automatically extract student names from handwriting and accurately classify ✓, A, P, L, E marks."}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {!geminiConfigured ? (
+              <button
+                type="button"
+                onClick={() => setShowKeyInput(!showKeyInput)}
+                className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5"
+              >
+                <Key className="w-3.5 h-3.5 text-sky-400" />
+                {showKeyInput ? "Close" : "Enter Gemini Key"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowKeyInput(!showKeyInput)}
+                className="text-xs font-semibold text-sky-700 hover:underline"
+              >
+                Change Key
+              </button>
+            )}
+
+            <a
+              href="https://aistudio.google.com/app/apikey"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-semibold text-slate-500 hover:text-slate-800 flex items-center gap-1 px-2 py-1"
+            >
+              Get Free Key <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+        </div>
+
+        {/* Input Tray when user expands key input */}
+        {showKeyInput && (
+          <div className="mt-3 pt-3 border-t border-sky-200/80 flex flex-col sm:flex-row items-center gap-2 animate-in fade-in">
+            <input
+              type="password"
+              placeholder="Paste your Gemini API key (AIzaSy...)"
+              value={geminiKeyInput}
+              onChange={(e) => setGeminiKeyInput(e.target.value)}
+              className="flex-1 w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-sky-500 font-mono"
+            />
+            <button
+              type="button"
+              disabled={isSavingKey || !geminiKeyInput.trim()}
+              onClick={handleSaveGeminiKey}
+              className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-md shadow-sky-600/30 transition-all disabled:opacity-50 shrink-0"
+            >
+              {isSavingKey ? "Verifying..." : "Connect Gemini"}
+            </button>
+          </div>
+        )}
+
+        {keyFeedback && (
+          <p className="text-xs font-semibold mt-2 text-emerald-700">
+            {keyFeedback}
+          </p>
         )}
       </div>
 
@@ -419,7 +556,7 @@ export default function ScanAttendancePage() {
             {isProcessing ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
-                Running Real OCR Recognition...
+                {geminiConfigured ? "Extracting with Gemini Vision AI..." : "Running OCR Recognition..."}
               </>
             ) : (
               <>
@@ -491,10 +628,12 @@ export default function ScanAttendancePage() {
               </div>
               <div>
                 <h3 className="font-extrabold text-slate-900 text-base">
-                  Processing Real Attendance Sheet
+                  {geminiConfigured ? "Processing with Gemini Multimodal AI" : "Processing Attendance Sheet"}
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Executing Tesseract OCR &amp; stroke morphology pipeline...
+                  {geminiConfigured
+                    ? "Gemini 1.5 Flash Vision analyzing handwritten roster & attendance grid..."
+                    : "Executing OCR & stroke morphology pipeline..."}
                 </p>
               </div>
             </div>
@@ -507,7 +646,7 @@ export default function ScanAttendancePage() {
                 ) : (
                   <div className="w-4 h-4 rounded-full border-2 border-sky-500 border-t-transparent animate-spin shrink-0" />
                 )}
-                <span className="font-medium text-slate-800">1. Upload &amp; sharp image calibration</span>
+                <span className="font-medium text-slate-800">1. Image calibration &amp; sharp normalization</span>
               </div>
 
               <div className={`flex items-center gap-3 p-2 rounded-lg ${processingStep >= 2 ? "bg-slate-50" : "opacity-40"}`}>
@@ -518,7 +657,7 @@ export default function ScanAttendancePage() {
                 ) : (
                   <div className="w-4 h-4 rounded-full border-2 border-slate-300 shrink-0" />
                 )}
-                <span className="font-medium text-slate-800">2. Table grid line &amp; boundary detection</span>
+                <span className="font-medium text-slate-800">2. Multimodal table layout &amp; column detection</span>
               </div>
 
               <div className={`flex items-center gap-3 p-2 rounded-lg ${processingStep >= 3 ? "bg-slate-50" : "opacity-40"}`}>
@@ -529,7 +668,7 @@ export default function ScanAttendancePage() {
                 ) : (
                   <div className="w-4 h-4 rounded-full border-2 border-slate-300 shrink-0" />
                 )}
-                <span className="font-medium text-slate-800">3. Tesseract OCR text &amp; header recognition</span>
+                <span className="font-medium text-slate-800">3. Student name handwriting recognition</span>
               </div>
 
               <div className={`flex items-center gap-3 p-2 rounded-lg ${processingStep >= 4 ? "bg-slate-50" : "opacity-40"}`}>
@@ -540,7 +679,7 @@ export default function ScanAttendancePage() {
                 ) : (
                   <div className="w-4 h-4 rounded-full border-2 border-slate-300 shrink-0" />
                 )}
-                <span className="font-medium text-slate-800">4. Cell pixel density &amp; mark morphology classification</span>
+                <span className="font-medium text-slate-800">4. Mark classification (✓, A, P, L, E, blank)</span>
               </div>
 
               <div className={`flex items-center gap-3 p-2 rounded-lg ${processingStep >= 5 ? "bg-slate-50" : "opacity-40"}`}>
@@ -549,7 +688,7 @@ export default function ScanAttendancePage() {
                 ) : (
                   <div className="w-4 h-4 rounded-full border-2 border-slate-300 shrink-0" />
                 )}
-                <span className="font-medium text-slate-800">5. Student database mapping &amp; confidence scores</span>
+                <span className="font-medium text-slate-800">5. Class roster alignment &amp; confidence scores</span>
               </div>
             </div>
           </div>

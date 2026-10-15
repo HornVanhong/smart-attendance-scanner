@@ -74,9 +74,9 @@ export async function ensureSystemInitialized() {
         {
           schoolId: school.id,
           symbol: "P",
-          mappedStatus: "PRESENT",
-          description: "Letter P indicating present in roll call",
-          isDefault: false,
+          mappedStatus: "EXCUSED",
+          description: "Letter P: ឈប់មានច្បាប់ (Permission / Authorized Leave)",
+          isDefault: true,
         },
         {
           schoolId: school.id,

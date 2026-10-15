@@ -7,18 +7,56 @@ export async function GET(
 ) {
   const student = await prisma.student.findUnique({
     where: { id: params.id },
-    include: { class: { select: { name: true } } },
+    include: {
+      class: { select: { name: true } },
+      attendanceRecords: {
+        include: {
+          subject: { select: { name: true, code: true } },
+          verifiedBy: { select: { name: true } },
+          sourceSheet: { select: { id: true, originalFileName: true } },
+        },
+        orderBy: [{ attendanceDate: "desc" }, { period: "asc" }],
+      },
+    },
   });
 
   if (!student) {
     return NextResponse.json({ error: "Student not found" }, { status: 404 });
   }
 
+  const recs = student.attendanceRecords || [];
+  const totalSessions = recs.length;
+  const presentCount = recs.filter((r) => r.status === "PRESENT").length;
+  const absentCount = recs.filter((r) => r.status === "ABSENT").length;
+  const excusedCount = recs.filter((r) => r.status === "EXCUSED").length;
+  const lateCount = recs.filter((r) => r.status === "LATE").length;
+  const rate = totalSessions > 0 ? Math.round(((presentCount + lateCount) / totalSessions) * 100) : 100;
+
   return NextResponse.json({
     student: {
       ...student,
       className: student.class?.name || "Unassigned",
       enrollmentDate: student.enrollmentDate.toISOString().split("T")[0],
+      stats: {
+        totalSessions,
+        presentCount,
+        absentCount,
+        excusedCount,
+        lateCount,
+        rate,
+      },
+      records: recs.map((r) => ({
+        id: r.id,
+        date: r.attendanceDate.toISOString().split("T")[0],
+        period: r.period,
+        subjectName: r.subject.name,
+        subjectCode: r.subject.code,
+        status: r.status,
+        originalSymbol: r.originalSymbol,
+        isVerified: r.isVerified,
+        verifiedByName: r.verifiedBy?.name,
+        sourceSheetId: r.sourceSheetId,
+      })),
     },
   });
 }

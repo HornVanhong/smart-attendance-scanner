@@ -43,6 +43,27 @@ export default function AttendanceRecordsPage() {
     remarks: "",
   });
 
+  // View individual student state (មើលសិស្សម្នាក់ៗ)
+  const [viewStudentId, setViewStudentId] = useState<string | null>(null);
+  const [studentDetails, setStudentDetails] = useState<any | null>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+
+  const handleOpenStudentView = (id: string) => {
+    if (!id) return;
+    setViewStudentId(id);
+    setLoadingDetails(true);
+    fetch(`/api/students/${id}`)
+      .then((res) => res.json())
+      .then((d) => {
+        setStudentDetails(d.student || null);
+        setLoadingDetails(false);
+      })
+      .catch((e) => {
+        console.error(e);
+        setLoadingDetails(false);
+      });
+  };
+
   const fetchRecords = () => {
     setLoading(true);
     fetch("/api/attendance")
@@ -171,12 +192,44 @@ export default function AttendanceRecordsPage() {
             onChange={(e) => setSelectedStatus(e.target.value)}
             className="text-xs bg-slate-50 border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-sky-500"
           >
-            <option value="ALL">All Statuses</option>
-            <option value="PRESENT">Present</option>
-            <option value="ABSENT">Absent</option>
-            <option value="LATE">Late</option>
-            <option value="EXCUSED">Excused</option>
+            <option value="ALL">All Statuses (គ្រប់ស្ថានភាព)</option>
+            <option value="PRESENT">✓ វត្តមាន (Present)</option>
+            <option value="ABSENT">A ឈប់អត់ច្បាប់ (Absent)</option>
+            <option value="EXCUSED">P ឈប់មានច្បាប់ (Permission)</option>
+            <option value="LATE">L មកយឺត (Late)</option>
           </select>
+        </div>
+      </div>
+
+      {/* KPI Stats Strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+          <span className="text-[10px] font-bold text-slate-500 uppercase">សរុបកំណត់ត្រា</span>
+          <div className="text-xl font-extrabold text-slate-900 mt-0.5">{records.length}</div>
+        </div>
+        <div className="bg-white p-3 rounded-xl border border-emerald-100 bg-emerald-50/20 shadow-xs">
+          <span className="text-[10px] font-bold text-emerald-700 uppercase">វត្តមាន (✓)</span>
+          <div className="text-xl font-extrabold text-emerald-600 mt-0.5">
+            {records.filter((r) => r.status === "PRESENT").length} ដង
+          </div>
+        </div>
+        <div className="bg-white p-3 rounded-xl border border-red-100 bg-red-50/20 shadow-xs">
+          <span className="text-[10px] font-bold text-red-700 uppercase">ឈប់អត់ច្បាប់ (A)</span>
+          <div className="text-xl font-extrabold text-red-600 mt-0.5">
+            {records.filter((r) => r.status === "ABSENT").length} ដង
+          </div>
+        </div>
+        <div className="bg-white p-3 rounded-xl border border-blue-100 bg-blue-50/20 shadow-xs">
+          <span className="text-[10px] font-bold text-blue-700 uppercase">ឈប់មានច្បាប់ (P)</span>
+          <div className="text-xl font-extrabold text-blue-600 mt-0.5">
+            {records.filter((r) => r.status === "EXCUSED").length} ដង
+          </div>
+        </div>
+        <div className="bg-white p-3 rounded-xl border border-amber-100 bg-amber-50/20 shadow-xs">
+          <span className="text-[10px] font-bold text-amber-700 uppercase">មកយឺត (L)</span>
+          <div className="text-xl font-extrabold text-amber-600 mt-0.5">
+            {records.filter((r) => r.status === "LATE").length} ដង
+          </div>
         </div>
       </div>
 
@@ -200,17 +253,34 @@ export default function AttendanceRecordsPage() {
                 const getStatusPill = () => {
                   switch (r.status) {
                     case "PRESENT":
-                      return "bg-emerald-50 text-emerald-700 border-emerald-300";
+                      return {
+                        className: "bg-emerald-50 text-emerald-700 border-emerald-300",
+                        label: "✓ វត្តមាន",
+                      };
                     case "ABSENT":
-                      return "bg-red-50 text-red-700 border-red-300";
+                      return {
+                        className: "bg-red-50 text-red-700 border-red-300 font-extrabold",
+                        label: "A ឈប់អត់ច្បាប់",
+                      };
                     case "LATE":
-                      return "bg-amber-50 text-amber-700 border-amber-300";
+                      return {
+                        className: "bg-amber-50 text-amber-700 border-amber-300",
+                        label: "L មកយឺត",
+                      };
                     case "EXCUSED":
-                      return "bg-blue-50 text-blue-700 border-blue-300";
+                      return {
+                        className: "bg-blue-50 text-blue-700 border-blue-300 font-bold",
+                        label: "P ឈប់មានច្បាប់",
+                      };
                     default:
-                      return "bg-slate-100 text-slate-700 border-slate-300";
+                      return {
+                        className: "bg-slate-100 text-slate-700 border-slate-300",
+                        label: r.status,
+                      };
                   }
                 };
+
+                const statusInfo = getStatusPill();
 
                 return (
                   <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
@@ -220,8 +290,22 @@ export default function AttendanceRecordsPage() {
                     </td>
 
                     <td className="py-3 px-4">
-                      <div className="font-bold text-slate-900">{r.studentName}</div>
-                      <div className="text-[11px] text-slate-500 font-mono">{r.studentNumber}</div>
+                      <button
+                        onClick={() => handleOpenStudentView(r.studentId)}
+                        className="font-bold text-slate-900 hover:text-sky-600 hover:underline text-left block"
+                        title="មើលវត្តមានសិស្សម្នាក់ៗ"
+                      >
+                        {r.studentName}
+                      </button>
+                      <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-mono mt-0.5">
+                        <span>{r.studentNumber}</span>
+                        <button
+                          onClick={() => handleOpenStudentView(r.studentId)}
+                          className="text-[10px] text-sky-600 font-bold hover:underline bg-sky-50 px-1 rounded border border-sky-200"
+                        >
+                          មើលសិស្ស
+                        </button>
+                      </div>
                     </td>
 
                     <td className="py-3 px-4">
@@ -230,8 +314,8 @@ export default function AttendanceRecordsPage() {
                     </td>
 
                     <td className="py-3 px-3">
-                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${getStatusPill()}`}>
-                        {r.status}
+                      <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${statusInfo.className}`}>
+                        {statusInfo.label}
                       </span>
                     </td>
 
@@ -388,6 +472,174 @@ export default function AttendanceRecordsPage() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+      {/* Individual Student Attendance Profile Modal (មើលសិស្សម្នាក់ៗ) */}
+      {viewStudentId && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 space-y-5 animate-in fade-in zoom-in-95 max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-sky-100 text-sky-700 font-extrabold text-lg flex items-center justify-center shadow-inner">
+                  {studentDetails?.gender === "F" ? "👩‍🎓" : "👨‍🎓"}
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-lg leading-tight">
+                    {studentDetails?.fullName || "កំពុងទាញយក..."}
+                  </h3>
+                  <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-500">
+                    <span className="font-mono font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md border border-sky-200">
+                      {studentDetails?.studentNumber}
+                    </span>
+                    <span>• {studentDetails?.className}</span>
+                    <span>• ភេទ: {studentDetails?.gender === "F" ? "ស្រី (F)" : "ប្រុស (M)"}</span>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setViewStudentId(null);
+                  setStudentDetails(null);
+                }}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center font-bold text-sm transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {loadingDetails ? (
+              <div className="py-16 flex flex-col items-center justify-center space-y-3">
+                <div className="w-8 h-8 border-4 border-sky-600 border-t-transparent rounded-full animate-spin" />
+                <p className="text-xs font-semibold text-slate-500">កំពុងទាញយកព័ត៌មានវត្តមានសិស្ស...</p>
+              </div>
+            ) : studentDetails ? (
+              <div className="space-y-4 overflow-y-auto pr-1 flex-1">
+                {/* Attendance Tally Metrics Strip */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-emerald-50/50 p-3 rounded-2xl border border-emerald-200 text-center">
+                    <span className="text-[10px] font-bold uppercase text-emerald-700">វត្តមាន (✓)</span>
+                    <div className="text-xl font-extrabold text-emerald-600 mt-0.5">
+                      {studentDetails.stats?.presentCount || 0} ដង
+                    </div>
+                  </div>
+                  <div className="bg-red-50/50 p-3 rounded-2xl border border-red-200 text-center">
+                    <span className="text-[10px] font-bold uppercase text-red-700">ឈប់អត់ច្បាប់ (A)</span>
+                    <div className="text-xl font-extrabold text-red-600 mt-0.5">
+                      {studentDetails.stats?.absentCount || 0} ដង
+                    </div>
+                  </div>
+                  <div className="bg-blue-50/50 p-3 rounded-2xl border border-blue-200 text-center">
+                    <span className="text-[10px] font-bold uppercase text-blue-700">ឈប់មានច្បាប់ (P)</span>
+                    <div className="text-xl font-extrabold text-blue-600 mt-0.5">
+                      {studentDetails.stats?.excusedCount || 0} ដង
+                    </div>
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 text-center">
+                    <span className="text-[10px] font-bold uppercase text-slate-600">អត្រាវត្តមាន</span>
+                    <div className="text-xl font-extrabold text-slate-900 mt-0.5">
+                      {studentDetails.stats?.rate || 100}%
+                    </div>
+                    <span className="text-[9px] text-slate-400">សរុប {studentDetails.stats?.totalSessions || 0} ដង</span>
+                  </div>
+                </div>
+
+                {/* Detailed Session History Table */}
+                <div className="space-y-2">
+                  <h4 className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-sky-600" /> កាលវិភាគវត្តមានតាមមុខវិជ្ជា (Session Ledger)
+                  </h4>
+
+                  <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px]">
+                        <tr>
+                          <th className="py-2 px-3">កាលបរិច្ឆេទ &amp; ម៉ោង</th>
+                          <th className="py-2 px-3">មុខវិជ្ជា</th>
+                          <th className="py-2 px-3 text-center">និមិត្តសញ្ញា</th>
+                          <th className="py-2 px-3">ស្ថានភាព</th>
+                          <th className="py-2 px-3 text-right">ការផ្ទៀងផ្ទាត់</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {(studentDetails.records || []).map((rec: any) => {
+                          const getPill = () => {
+                            switch (rec.status) {
+                              case "PRESENT":
+                                return "bg-emerald-50 text-emerald-700 border-emerald-300";
+                              case "ABSENT":
+                                return "bg-red-50 text-red-700 border-red-300 font-bold";
+                              case "EXCUSED":
+                                return "bg-blue-50 text-blue-700 border-blue-300 font-bold";
+                              case "LATE":
+                                return "bg-amber-50 text-amber-700 border-amber-300";
+                              default:
+                                return "bg-slate-100 text-slate-700 border-slate-300";
+                            }
+                          };
+
+                          const getKhmerStatus = () => {
+                            switch (rec.status) {
+                              case "PRESENT": return "✓ វត្តមាន";
+                              case "ABSENT": return "A ឈប់អត់ច្បាប់";
+                              case "EXCUSED": return "P ឈប់មានច្បាប់";
+                              case "LATE": return "L មកយឺត";
+                              default: return rec.status;
+                            }
+                          };
+
+                          return (
+                            <tr key={rec.id} className="hover:bg-slate-50/60">
+                              <td className="py-2.5 px-3 font-medium text-slate-900">
+                                <div>{rec.date}</div>
+                                <div className="text-[10px] text-slate-400">Period {rec.period}</div>
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <div className="font-semibold text-slate-800">{rec.subjectName}</div>
+                                <div className="text-[10px] text-slate-400 font-mono">{rec.subjectCode}</div>
+                              </td>
+                              <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-700">
+                                {rec.originalSymbol || "—"}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${getPill()}`}>
+                                  {getKhmerStatus()}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-right text-[11px] text-slate-500">
+                                {rec.verifiedByName || "Prof. Chang"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+
+                    {(!studentDetails.records || studentDetails.records.length === 0) && (
+                      <div className="p-6 text-center text-slate-400 text-xs">
+                        មិនទាន់មានកំណត់ត្រាវត្តមានសម្រាប់សិស្សនេះនៅឡើយទេ។
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setViewStudentId(null);
+                  setStudentDetails(null);
+                }}
+                className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-colors"
+              >
+                បិទ (Close)
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
