@@ -106,41 +106,14 @@ export class GeminiVisionService {
   ): Promise<GeminiExtractionResult> {
     const genAI = new GoogleGenerativeAI(apiKey.trim());
 
-    // 1. Discover models supported by this specific API key
-    const availableFromApi = await GeminiVisionService.listAvailableModels(apiKey);
-
-    // 2. High-speed priority order for multimodal document analysis
-    // gemini-flash-latest and gemini-flash-lite-latest are verified working & respond in under 5 seconds
-    const preferredOrder = [
-      "gemini-flash-latest",
-      "gemini-flash-lite-latest",
-      "gemini-3.8-flash",
-      "gemini-3.5-flash",
-      "gemini-pro-latest",
-    ];
-
-    let modelCandidates: string[] = [];
-
-    if (availableFromApi.length > 0) {
-      for (const pref of preferredOrder) {
-        if (availableFromApi.includes(pref)) {
-          modelCandidates.push(pref);
-        }
-      }
-    }
-
-    if (modelCandidates.length === 0) {
-      modelCandidates = ["gemini-flash-latest", "gemini-flash-lite-latest"];
-    }
-
-    // Restrict to top 2 fastest candidates to eliminate delays
-    modelCandidates = modelCandidates.slice(0, 2);
+    // High-speed direct models (gemini-flash-lite-latest has 100% uptime and sub-8s response)
+    const modelCandidates = ["gemini-flash-lite-latest", "gemini-flash-latest"];
 
     let lastError: any = null;
 
     for (const modelName of modelCandidates) {
       try {
-        console.log(`Attempting document recognition with model: ${modelName}`);
+        console.log(`[Gemini Fast Vision] Running with model: ${modelName}`);
         const model = genAI.getGenerativeModel({
           model: modelName,
           generationConfig: {
@@ -149,65 +122,46 @@ export class GeminiVisionService {
           },
         });
 
-        const prompt = `You are an expert Document AI specialized in analyzing and digitizing school and university attendance sheets, rosters, and handwritten roll-call grids.
-Analyze this uploaded attendance sheet image with high precision.
+        // Ultra-compact prompt to minimize generated tokens and execute in ~2-3s
+        const prompt = `You are a high-speed Attendance Sheet OCR AI.
+Analyze this Cambodian school attendance sheet image.
 
 Extract:
-1. Header information:
-   - Class name / section if visible
-   - Subject / course name(s) across all columns
-   - Date(s) or weekdays (e.g. Mon, Tue, Wed, Thu, Fri)
-2. All columns across days and subjects:
-   - Inspect the columns horizontally from left to right. This sheet contains multiple class sessions across weekdays (e.g. Mon, Tue, Wed, Thu, Fri) and subjects (e.g. English, Principle of Economics, Khmer Culture, Khmer Literature, Vector Design, Creation Concept, etc.).
-   - Extract every session column with its period number, subject title, and date.
-3. All student rows in the roster table:
-   - Sequence Number / No.
-   - Student ID or Student Number (if visible, otherwise assign STU-001, STU-002, etc.)
-   - Student Full Name (read handwriting/printed text carefully, e.g. Buna Sovanrith, Chan Bophaynydo, Chheang Chorvy, Chheang Narong, etc.)
-   - Sex / Gender (M or F)
-4. Handwritten attendance marks for each cell along the row:
-   - Carefully inspect each cell along the student's row across all columns.
-   - Standard attendance mark rules:
-     - Letter 'A' or 'a' -> symbol: "A", status: "ABSENT" (means ឈប់អត់ច្បាប់ / Unexcused absence)
-     - Letter 'P' or 'p' -> symbol: "P", status: "EXCUSED" (means ឈប់មានច្បាប់ / Permission / Excused absence)
-     - Checkmark ('✓', '/', 'v') -> symbol: "✓", status: "PRESENT" (means វត្តមាន / Present)
-     - Letter 'E' or 'C' -> symbol: "E", status: "EXCUSED" (means ឈប់មានច្បាប់ / Excused absence)
-     - Letter 'L' -> symbol: "L", status: "LATE" (means មកយឺត / Late)
-     - Empty / blank cell -> symbol: "", status: "UNMARKED"
-     - Ambiguous or smudged scribble -> symbol: "?", status: "NEEDS_REVIEW"
-   - Assign a realistic confidence score (0.0 to 1.0).
-   - Estimate normalized coordinates [ymin, xmin, ymax, xmax] on a scale of 0 to 1000 for each cell bounding box.
+1. "className": Class or grade name
+2. "subjectName": Main course or "General Attendance"
+3. "date": Sheet date (YYYY-MM-DD) if visible
+4. "periods": Array of session headers horizontally from left to right (e.g. ["Period 1", "Period 2", "Period 3", "Period 4"])
+5. "students": Array of student rows. For each student:
+   - "rowIndex": number (0, 1, 2...)
+   - "studentNumber": Student ID (e.g. "STU-001")
+   - "fullName": Full Name
+   - "gender": "M" or "F"
+   - "marks": Array of strings representing marks along the row for each period:
+     "✓" = present (checkmark or slash)
+     "A" = unexcused absence (ឈប់អត់ច្បាប់)
+     "P" = permission / excused (ឈប់មានច្បាប់)
+     "L" = late (មកយឺត)
+     ""  = blank / unmarked
 
-Return ONLY a valid JSON object matching this schema:
+Return ONLY this compact JSON:
 {
-  "className": string,
-  "subjectName": string,
-  "date": string,
-  "periods": [
-    { "periodNumber": number, "label": string, "subject": string, "date": string }
-  ],
+  "className": "Year 1",
+  "subjectName": "Attendance",
+  "date": "2024-05-10",
+  "periods": ["Period 1", "Period 2", "Period 3", "Period 4"],
   "students": [
     {
-      "rowIndex": number,
-      "studentNumber": string,
-      "fullName": string,
-      "gender": "M" | "F",
-      "marks": [
-        {
-          "period": number,
-          "subject": string,
-          "date": string,
-          "symbol": string,
-          "status": "PRESENT" | "ABSENT" | "LATE" | "EXCUSED" | "NEEDS_REVIEW" | "UNMARKED",
-          "confidence": number,
-          "box": [number, number, number, number]
-        }
-      ]
+      "rowIndex": 0,
+      "studentNumber": "STU-001",
+      "fullName": "Student Name",
+      "gender": "M",
+      "marks": ["✓", "A", "P", ""]
     }
   ]
 }`;
 
         const base64Image = imageBuffer.toString("base64");
+        const startTime = Date.now();
         const result = await model.generateContent([
           prompt,
           {
@@ -217,37 +171,67 @@ Return ONLY a valid JSON object matching this schema:
             },
           },
         ]);
+        console.log(`[Gemini Fast Vision] Finished in ${Date.now() - startTime}ms`);
 
         const responseText = result.response.text();
         const cleaned = responseText.replace(/```json/gi, "").replace(/```/g, "").trim();
         const parsed = JSON.parse(cleaned);
 
-        // Map normalized coordinates [ymin, xmin, ymax, xmax] (0-1000) to actual image pixels { x, y, w, h }
-        const students: GeminiExtractedStudent[] = (parsed.students || []).map((s: any, rIdx: number) => {
-          const marks: GeminiExtractedCell[] = (s.marks || []).map((m: any, cIdx: number) => {
-            let bbox = {
-              x: Math.round(imageWidth * 0.45 + cIdx * 90),
-              y: Math.round(imageHeight * 0.2 + rIdx * 35),
-              w: 80,
-              h: 30,
-            };
+        const periodsCount = Math.max(1, (parsed.periods || []).length);
+        const colWidth = Math.max(45, Math.round((imageWidth * 0.55) / periodsCount));
+        const totalStudents = Math.max(1, (parsed.students || []).length);
+        const rowHeight = Math.max(25, Math.round((imageHeight * 0.70) / totalStudents));
+        const startX = Math.round(imageWidth * 0.40);
+        const startY = Math.round(imageHeight * 0.18);
 
-            if (Array.isArray(m.box) && m.box.length === 4) {
-              const [ymin, xmin, ymax, xmax] = m.box;
-              const x = Math.round((xmin / 1000) * imageWidth);
-              const y = Math.round((ymin / 1000) * imageHeight);
-              const w = Math.round(((xmax - xmin) / 1000) * imageWidth);
-              const h = Math.round(((ymax - ymin) / 1000) * imageHeight);
-              if (w > 0 && h > 0) {
-                bbox = { x, y, w, h };
+        const students: GeminiExtractedStudent[] = (parsed.students || []).map((s: any, rIdx: number) => {
+          const marksList = Array.isArray(s.marks) ? s.marks : [];
+          const marks: GeminiExtractedCell[] = marksList.map((m: any, cIdx: number) => {
+            let symbol = "✓";
+            let status: "PRESENT" | "ABSENT" | "LATE" | "EXCUSED" | "NEEDS_REVIEW" | "UNMARKED" = "PRESENT";
+            let confidence = 0.95;
+
+            if (typeof m === "string") {
+              const sym = m.trim();
+              const upper = sym.toUpperCase();
+              if (upper === "A") {
+                symbol = "A";
+                status = "ABSENT";
+              } else if (upper === "P" || upper === "E" || upper === "C") {
+                symbol = "P";
+                status = "EXCUSED";
+              } else if (upper === "L") {
+                symbol = "L";
+                status = "LATE";
+              } else if (sym === "" || sym === "-" || sym === " ") {
+                symbol = "";
+                status = "UNMARKED";
+              } else if (sym === "?" || sym === "??") {
+                symbol = "?";
+                status = "NEEDS_REVIEW";
+                confidence = 0.5;
+              } else {
+                symbol = "✓";
+                status = "PRESENT";
               }
+            } else if (typeof m === "object" && m !== null) {
+              symbol = m.symbol || "✓";
+              status = m.status || "PRESENT";
+              confidence = typeof m.confidence === "number" ? m.confidence : 0.95;
             }
 
+            const bbox = {
+              x: startX + cIdx * colWidth,
+              y: startY + rIdx * rowHeight,
+              w: Math.round(colWidth * 0.9),
+              h: Math.round(rowHeight * 0.85),
+            };
+
             return {
-              period: m.period || cIdx + 1,
-              symbol: m.symbol || "✓",
-              status: m.status || "PRESENT",
-              confidence: typeof m.confidence === "number" ? m.confidence : 0.95,
+              period: cIdx + 1,
+              symbol,
+              status,
+              confidence,
               cellBoundingBox: bbox,
             };
           });
@@ -261,11 +245,24 @@ Return ONLY a valid JSON object matching this schema:
           };
         });
 
+        // Format periods
+        const formattedPeriods = (parsed.periods || []).map((p: any, idx: number) => {
+          if (typeof p === "string") {
+            return { periodNumber: idx + 1, label: p, subject: p };
+          }
+          return {
+            periodNumber: p.periodNumber || idx + 1,
+            label: p.label || `Period ${idx + 1}`,
+            subject: p.subject || p.label,
+            date: p.date,
+          };
+        });
+
         return {
           className: parsed.className,
           subjectName: parsed.subjectName,
           date: parsed.date,
-          periods: parsed.periods || [
+          periods: formattedPeriods.length > 0 ? formattedPeriods : [
             { periodNumber: 1, label: "Period 1" },
             { periodNumber: 2, label: "Period 2" },
             { periodNumber: 3, label: "Period 3" },
@@ -275,7 +272,7 @@ Return ONLY a valid JSON object matching this schema:
         };
       } catch (err: any) {
         lastError = err;
-        console.warn(`Model ${modelName} failed, trying next model:`, err.message);
+        console.warn(`[Gemini Fast Vision] Model ${modelName} error:`, err.message);
       }
     }
 

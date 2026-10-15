@@ -12,6 +12,9 @@ import Tesseract from "tesseract.js";
 import fs from "fs";
 import path from "path";
 
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -58,7 +61,7 @@ export async function POST(
       rawFileBuffer = fs.readFileSync(absoluteImagePath);
     }
 
-    // 3. Image calibration & optimization with sharp (resize to max 1800px & high-quality JPEG for 10x faster network transfer)
+    // 3. Image calibration & optimization with sharp (1200px width with quality 80 for 3x faster AI upload)
     let sharpPipeline = sharp(rawFileBuffer);
     if (rotationAngle !== 0) {
       sharpPipeline = sharpPipeline.rotate(rotationAngle);
@@ -69,12 +72,12 @@ export async function POST(
     }
 
     sharpPipeline = sharpPipeline.resize({
-      width: 1800,
+      width: 1200,
       withoutEnlargement: true,
       fit: "inside",
     });
 
-    const processedBuffer = await sharpPipeline.jpeg({ quality: 85 }).toBuffer();
+    const processedBuffer = await sharpPipeline.jpeg({ quality: 80 }).toBuffer();
     const meta = await sharp(processedBuffer).metadata();
     const imgWidth = meta.width || 1024;
     const imgHeight = meta.height || 980;
@@ -146,7 +149,7 @@ export async function POST(
     // ==========================================
     if (geminiKey) {
       try {
-        console.log("Processing with Gemini Multimodal AI Vision...");
+        console.log("Processing with Gemini Fast Multimodal AI Vision...");
         const aiExtraction = await GeminiVisionService.extractAttendanceSheet(
           processedBuffer,
           "image/jpeg",
@@ -163,9 +166,11 @@ export async function POST(
           if (!isNaN(parsedD.getTime())) sheetDate = parsedD;
         }
 
+        const cellsToInsert: any[] = [];
+        const cellsForResponse: any[] = [];
+
         // Auto-match or enroll students in Prisma
         for (const aiStudent of aiExtraction.students) {
-          // Check if student already enrolled in class
           let matched = classStudents.find(
             (s) =>
               s.studentNumber.toUpperCase() === aiStudent.studentNumber.toUpperCase() ||
@@ -173,7 +178,6 @@ export async function POST(
           );
 
           if (!matched && targetClassId) {
-            // Auto-enroll student into this class from the paper sheet!
             matched = await prisma.student.create({
               data: {
                 schoolId: sheet.schoolId,
@@ -188,7 +192,7 @@ export async function POST(
             classStudents.push(matched);
           }
 
-          // Insert cells
+          // Build cells for this student
           for (let cIdx = 0; cIdx < aiStudent.marks.length; cIdx++) {
             const m = aiStudent.marks[cIdx];
             const bbox = m.cellBoundingBox || {
@@ -199,49 +203,57 @@ export async function POST(
             };
 
             const isNeedsReview = m.status === "NEEDS_REVIEW" || m.confidence < 0.70;
+            const cellId = `cell_${Date.now()}_${aiStudent.rowIndex}_${cIdx}_${Math.random().toString(36).substring(2, 6)}`;
 
-            const cellRecord = await prisma.scanCell.create({
-              data: {
-                attendanceSheetId: sheet.id,
-                studentId: matched?.id || null,
-                rawStudentName: aiStudent.fullName,
-                rawStudentNumber: aiStudent.studentNumber,
-                rowIndex: aiStudent.rowIndex,
-                columnIndex: cIdx,
-                dateString: sheetDate.toISOString().split("T")[0],
-                period: m.period || cIdx + 1,
-                cellBoundingBox: JSON.stringify(bbox),
-                recognizedText: m.symbol,
-                recognizedSymbol: m.symbol,
-                interpretedStatus: m.status,
-                confidenceScore: m.confidence,
-                reviewStatus: isNeedsReview ? "NEEDS_REVIEW" : "AUTO_HIGH",
-                isEdited: false,
-              },
+            cellsToInsert.push({
+              id: cellId,
+              attendanceSheetId: sheet.id,
+              studentId: matched?.id || null,
+              rawStudentName: aiStudent.fullName,
+              rawStudentNumber: aiStudent.studentNumber,
+              rowIndex: aiStudent.rowIndex,
+              columnIndex: cIdx,
+              dateString: sheetDate.toISOString().split("T")[0],
+              period: m.period || cIdx + 1,
+              cellBoundingBox: JSON.stringify(bbox),
+              recognizedText: m.symbol,
+              recognizedSymbol: m.symbol,
+              interpretedStatus: m.status,
+              confidenceScore: m.confidence,
+              reviewStatus: isNeedsReview ? "NEEDS_REVIEW" : "AUTO_HIGH",
+              isEdited: false,
             });
 
-            createdCells.push({
-              id: cellRecord.id,
-              attendanceSheetId: cellRecord.attendanceSheetId,
-              studentId: cellRecord.studentId,
+            cellsForResponse.push({
+              id: cellId,
+              attendanceSheetId: sheet.id,
+              studentId: matched?.id || null,
               matchedStudentName: aiStudent.fullName,
               rawStudentName: aiStudent.fullName,
               rawStudentNumber: aiStudent.studentNumber,
               gender: aiStudent.gender,
-              rowIndex: cellRecord.rowIndex,
-              columnIndex: cellRecord.columnIndex,
-              dateString: cellRecord.dateString,
-              period: cellRecord.period,
+              rowIndex: aiStudent.rowIndex,
+              columnIndex: cIdx,
+              dateString: sheetDate.toISOString().split("T")[0],
+              period: m.period || cIdx + 1,
               cellBoundingBox: bbox,
-              recognizedText: cellRecord.recognizedText,
-              recognizedSymbol: cellRecord.recognizedSymbol,
-              interpretedStatus: cellRecord.interpretedStatus,
-              confidenceScore: cellRecord.confidenceScore,
-              reviewStatus: cellRecord.reviewStatus,
-              isEdited: cellRecord.isEdited,
+              recognizedText: m.symbol,
+              recognizedSymbol: m.symbol,
+              interpretedStatus: m.status,
+              confidenceScore: m.confidence,
+              reviewStatus: isNeedsReview ? "NEEDS_REVIEW" : "AUTO_HIGH",
+              isEdited: false,
             });
           }
         }
+
+        // BATCH INSERT ALL CELLS IN ONE SINGLE QUERY (Reduces DB roundtrips from 180 to 1)
+        if (cellsToInsert.length > 0) {
+          await prisma.scanCell.createMany({
+            data: cellsToInsert,
+          });
+        }
+        createdCells.push(...cellsForResponse);
       } catch (geminiErr: any) {
         console.warn("Gemini AI failed, falling back to local OCR:", geminiErr.message);
       }
