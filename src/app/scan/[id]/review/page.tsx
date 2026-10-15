@@ -27,6 +27,7 @@ import {
   ChevronDown,
   Layers,
   Calendar,
+  Trash2,
 } from "lucide-react";
 import { ScanCellModel, AttendanceSheetModel } from "@/lib/db-store";
 
@@ -42,6 +43,8 @@ export default function ReviewWorkspacePage() {
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   // Undo / Redo history stacks
   const [history, setHistory] = useState<ScanCellModel[][]>([]);
@@ -340,6 +343,29 @@ export default function ReviewWorkspacePage() {
     }
   };
 
+  // Delete scan and redirect to rescan
+  const handleDeleteScan = async () => {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/scans/${sheetId}`, {
+        method: "DELETE",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to delete scan");
+      }
+      setShowDeleteModal(false);
+      // Redirect to /scan so user can upload and scan clean data immediately
+      router.push("/scan");
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || "Failed to delete scan.");
+      setDeleting(false);
+      setShowDeleteModal(false);
+    }
+  };
+
+
   // Zoom handlers
   const handleZoomIn = () => setZoomLevel((z) => Math.min(3.0, z + 0.25));
   const handleZoomOut = () => setZoomLevel((z) => Math.max(0.6, z - 0.25));
@@ -605,6 +631,16 @@ export default function ReviewWorkspacePage() {
           >
             <Save className="w-3.5 h-3.5" />
             {saving ? "Saving..." : "Save Draft"}
+          </button>
+
+          {/* Delete Scan & Rescan Button */}
+          <button
+            onClick={() => setShowDeleteModal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold transition-all shadow-xs"
+            title="លុបការស្កេននេះចោលដើម្បីស្កេនទិន្នន័យថ្មី (Delete this scan to rescan new data)"
+          >
+            <Trash2 className="w-3.5 h-3.5 text-red-600" />
+            Delete &amp; Rescan
           </button>
 
           {/* Confirm Attendance */}
@@ -1423,6 +1459,56 @@ export default function ReviewWorkspacePage() {
                     <span>Run Gemini Recognition</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete & Rescan Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-red-100 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">
+                  លុបការស្កេននេះ &amp; ស្កេនទិន្នន័យថ្មី?
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Delete This Scan &amp; Rescan Clean Data?
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-red-50/80 border border-red-200 rounded-xl text-xs text-red-800 space-y-2">
+              <p className="font-semibold text-red-900">
+                តើអ្នកចង់លុបទិន្នន័យស្កេននេះដើម្បីស្កេនយកទិន្នន័យថ្មីមែនទេ?
+              </p>
+              <p className="text-[11px] text-red-700 leading-relaxed">
+                សកម្មភាពនេះនឹងលុបសន្លឹកស្កេននេះ និងរាល់ទិន្នន័យវត្តមានដែលទាក់ទងនឹងវាទាំងអស់ចេញពីប្រព័ន្ធ។ បន្ទាប់ពីលុប អ្នកនឹងត្រឡប់ទៅកាន់ទំព័រស្កេនភ្លាមៗ ដើម្បីស្កេនឯកសារថ្មី។
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setShowDeleteModal(false)}
+                className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs font-semibold"
+              >
+                បោះបង់ (Cancel)
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={handleDeleteScan}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-md shadow-red-600/20 disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {deleting ? "កំពុងលុប..." : "យល់ព្រមលុប & ស្កេនថ្មី (Delete & Rescan)"}
               </button>
             </div>
           </div>

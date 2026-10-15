@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   History,
   ScanLine,
@@ -21,9 +22,12 @@ import {
 import { AttendanceSheetModel } from "@/lib/db-store";
 
 export default function ScanHistoryPage() {
+  const router = useRouter();
   const [sheets, setSheets] = useState<AttendanceSheetModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<AttendanceSheetModel | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchScans = () => {
     setLoading(true);
@@ -43,13 +47,24 @@ export default function ScanHistoryPage() {
     fetchScans();
   }, []);
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this scan sheet?")) return;
+  const executeDelete = async (id: string, redirectToScan: boolean) => {
     try {
-      await fetch(`/api/scans/${id}`, { method: "DELETE" });
-      fetchScans();
-    } catch (e) {
-      console.error(e);
+      setDeleting(true);
+      const res = await fetch(`/api/scans/${id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to delete scan");
+      }
+      setDeleteTarget(null);
+      setDeleting(false);
+      if (redirectToScan) {
+        router.push("/scan");
+      } else {
+        fetchScans();
+      }
+    } catch (e: any) {
+      alert("Error: " + (e?.message || e));
+      setDeleting(false);
     }
   };
 
@@ -295,11 +310,12 @@ export default function ScanHistoryPage() {
                 </a>
 
                 <button
-                  onClick={() => handleDelete(s.id)}
-                  className="p-2 rounded-xl bg-slate-100 hover:bg-red-50 text-slate-500 hover:text-red-600 text-xs"
-                  title="Delete Scan"
+                  onClick={() => setDeleteTarget(s)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold border border-red-200 transition-all"
+                  title="លុបការស្កេននេះចោលដើម្បីស្កេនទិន្នន័យថ្មី (Delete scan & rescan)"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                  <span className="hidden sm:inline">Delete / Rescan</span>
                 </button>
               </div>
             </div>
@@ -314,6 +330,74 @@ export default function ScanHistoryPage() {
       </div>
 
       {renderPagination("scans")}
+
+      {/* Delete / Rescan Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-red-100 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">
+                  លុបការស្កេននេះ &amp; ស្កេនទិន្នន័យថ្មី?
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Delete This Scan &amp; Rescan Clean Data?
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
+              <div className="font-bold text-slate-800">{deleteTarget.originalFileName}</div>
+              <div className="text-slate-500">
+                {deleteTarget.className || "Class"} • {deleteTarget.subjectName || "Subject"}
+              </div>
+              <div className="text-slate-500 font-medium pt-1">
+                Detected: {deleteTarget.detectedStudentCount} Students • {deleteTarget.detectedCellCount} Cells
+              </div>
+            </div>
+
+            <div className="p-3 bg-red-50/80 border border-red-200 rounded-xl text-xs text-red-800 space-y-1">
+              <p className="font-semibold text-red-900">
+                តើអ្នកចង់លុបទិន្នន័យស្កេននេះដើម្បីស្កេនយកទិន្នន័យថ្មីមែនទេ?
+              </p>
+              <p className="text-[11px] text-red-700 leading-relaxed">
+                រាល់កំណត់ត្រាវត្តមានដែលបានបង្កើតចេញពីការស្កេននេះ នឹងត្រូវលុបសម្អាតចេញពីប្រព័ន្ធទាំងស្រុង។
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setDeleteTarget(null)}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs font-semibold"
+              >
+                បោះបង់ (Cancel)
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => executeDelete(deleteTarget.id, false)}
+                className="w-full sm:w-auto px-3.5 py-2 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold disabled:opacity-50"
+              >
+                {deleting ? "កំពុងលុប..." : "លុបតែប៉ុណ្ណោះ (Delete Only)"}
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => executeDelete(deleteTarget.id, true)}
+                className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-md shadow-red-600/20 disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {deleting ? "កំពុងលុប..." : "លុប & ស្កេនថ្មី (Delete & Rescan)"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

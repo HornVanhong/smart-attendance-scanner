@@ -135,3 +135,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Failed to create attendance record" }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+    const sheetId = searchParams.get("sheetId");
+
+    if (id) {
+      await prisma.attendanceRecord.delete({
+        where: { id },
+      });
+      return NextResponse.json({ success: true, message: "Attendance record deleted" });
+    }
+
+    if (sheetId) {
+      const deleted = await prisma.attendanceRecord.deleteMany({
+        where: { sourceSheetId: sheetId },
+      });
+      return NextResponse.json({ success: true, count: deleted.count });
+    }
+
+    return NextResponse.json({ error: "Missing id or sheetId parameter" }, { status: 400 });
+  } catch (error: any) {
+    console.error("Error deleting attendance record:", error);
+    return NextResponse.json({ error: "Failed to delete record: " + (error?.message || error) }, { status: 500 });
+  }
+}
+

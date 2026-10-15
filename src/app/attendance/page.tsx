@@ -20,6 +20,7 @@ import {
   FileText,
   ChevronLeft,
   ChevronRight,
+  Trash2,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -233,6 +234,17 @@ export default function AttendanceRecordsPage() {
       console.error(err);
     }
   };
+
+  const handleDeleteRecord = async (id: string) => {
+    if (!confirm("តើអ្នកប្រាកដថាចង់លុបកំណត់ត្រាវត្តមាននេះមែនទេ? (Are you sure you want to delete this attendance record?)")) return;
+    try {
+      const res = await fetch(`/api/attendance?id=${id}`, { method: "DELETE" });
+      if (res.ok) fetchRecords();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
 
   const handleExportFilteredExcel = () => {
     if (filteredRecords.length === 0) {
@@ -570,16 +582,26 @@ export default function AttendanceRecordsPage() {
                     </td>
 
                     <td className="py-3 px-4 text-right">
-                      {r.sourceSheetId ? (
-                        <Link
-                          href={`/scan/${r.sourceSheetId}/review`}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-600 hover:text-sky-700 hover:underline"
+                      <div className="flex items-center justify-end gap-2">
+                        {r.sourceSheetId ? (
+                          <Link
+                            href={`/scan/${r.sourceSheetId}/review`}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-600 hover:text-sky-700 hover:underline"
+                            title="មើលការស្កេន / View & Manage Scan"
+                          >
+                            <Eye className="w-3.5 h-3.5" /> View Scan
+                          </Link>
+                        ) : (
+                          <span className="text-[11px] text-slate-400">Manual Entry</span>
+                        )}
+                        <button
+                          onClick={() => handleDeleteRecord(r.id)}
+                          className="p-1 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          title="លុបកំណត់ត្រានេះ (Delete Record)"
                         >
-                          <Eye className="w-3.5 h-3.5" /> View Scan
-                        </Link>
-                      ) : (
-                        <span className="text-[11px] text-slate-400">Manual Entry</span>
-                      )}
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
