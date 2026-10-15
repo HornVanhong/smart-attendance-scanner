@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
+import Link from "next/link";
 import {
   Upload,
   Camera,
@@ -10,7 +10,6 @@ import {
   Sun,
   Contrast,
   FileCheck,
-  Sparkles,
   AlertCircle,
   CheckCircle2,
   RefreshCw,
@@ -18,6 +17,7 @@ import {
   Layers,
   ArrowRight,
   Info,
+  PlusCircle,
 } from "lucide-react";
 import { ImagePreprocessingService } from "@/services/image-preprocessing.service";
 
@@ -27,8 +27,7 @@ export default function ScanAttendancePage() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [imagePreviewUrl, setImagePreviewUrl] = useState<string>("/samples/attendance_sheet_sample.svg");
-  const [isUsingSample, setIsUsingSample] = useState(true);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
 
   // Preprocessing controls
   const [rotationAngle, setRotationAngle] = useState(0);
@@ -40,20 +39,28 @@ export default function ScanAttendancePage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Target class & subject selection
-  const [classId, setClassId] = useState("cls_10a");
-  const [subjectId, setSubjectId] = useState("sub_math101");
+  const [classId, setClassId] = useState("");
+  const [subjectId, setSubjectId] = useState("");
   const [classesList, setClassesList] = useState<any[]>([]);
   const [subjectsList, setSubjectsList] = useState<any[]>([]);
 
   useEffect(() => {
     fetch("/api/classes")
       .then((res) => res.json())
-      .then((d) => setClassesList(d.classes || []))
+      .then((d) => {
+        const list = d.classes || [];
+        setClassesList(list);
+        if (list.length > 0) setClassId(list[0].id);
+      })
       .catch(() => {});
 
     fetch("/api/subjects")
       .then((res) => res.json())
-      .then((d) => setSubjectsList(d.subjects || []))
+      .then((d) => {
+        const list = d.subjects || [];
+        setSubjectsList(list);
+        if (list.length > 0) setSubjectId(list[0].id);
+      })
       .catch(() => {});
   }, []);
 
@@ -69,7 +76,6 @@ export default function ScanAttendancePage() {
 
     setErrorMessage(null);
     setSelectedFile(file);
-    setIsUsingSample(false);
     const objectUrl = URL.createObjectURL(file);
     setImagePreviewUrl(objectUrl);
   };
@@ -87,20 +93,8 @@ export default function ScanAttendancePage() {
 
     setErrorMessage(null);
     setSelectedFile(file);
-    setIsUsingSample(false);
     const objectUrl = URL.createObjectURL(file);
     setImagePreviewUrl(objectUrl);
-  };
-
-  const loadSampleSheet = () => {
-    setSelectedFile(null);
-    setIsUsingSample(true);
-    setImagePreviewUrl("/samples/attendance_sheet_sample.svg");
-    setRotationAngle(0);
-    setBrightness(0);
-    setContrastVal(0);
-    setGrayscale(false);
-    setErrorMessage(null);
   };
 
   const handleRotate = () => {
@@ -108,47 +102,43 @@ export default function ScanAttendancePage() {
   };
 
   const handleStartProcessing = async () => {
+    if (!selectedFile) {
+      setErrorMessage("Please select or capture a real attendance sheet image first.");
+      return;
+    }
+
+    if (!classId) {
+      setErrorMessage("Please select an enrolled classroom for this attendance scan.");
+      return;
+    }
+
     setIsProcessing(true);
     setProcessingStep(1);
     setErrorMessage(null);
 
     try {
-      // 1. Create scan record
-      let scanId = "scan_sample_01";
+      // 1. Upload real file
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+      if (classId) formData.append("classId", classId);
+      if (subjectId) formData.append("subjectId", subjectId);
 
-      if (!isUsingSample && selectedFile) {
-        const formData = new FormData();
-        formData.append("file", selectedFile);
-        formData.append("classId", classId);
-        formData.append("subjectId", subjectId);
+      const uploadRes = await fetch("/api/scans", {
+        method: "POST",
+        body: formData,
+      });
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok) throw new Error(uploadData.error || "Upload failed");
+      const scanId = uploadData.sheet.id;
 
-        const uploadRes = await fetch("/api/scans", {
-          method: "POST",
-          body: formData,
-        });
-        const uploadData = await uploadRes.json();
-        if (!uploadRes.ok) throw new Error(uploadData.error || "Upload failed");
-        scanId = uploadData.sheet.id;
-      } else {
-        // Sample sheet route
-        const sampleRes = await fetch("/api/scans", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ useSample: true, classId, subjectId }),
-        });
-        const sampleData = await sampleRes.json();
-        if (sampleData.sheet?.id) scanId = sampleData.sheet.id;
-      }
-
-      // Step 2: Table boundary detection
+      // 2. Table boundary detection
       setProcessingStep(2);
-      await new Promise((r) => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 400));
 
-      // Step 3: OCR Header & Student Columns
+      // 3. OCR Header & Student Columns
       setProcessingStep(3);
-      await new Promise((r) => setTimeout(r, 700));
 
-      // Step 4: Classifying handwritten marks
+      // 4. Classifying handwritten marks
       setProcessingStep(4);
       const processRes = await fetch(`/api/scans/${scanId}/process`, {
         method: "POST",
@@ -161,14 +151,15 @@ export default function ScanAttendancePage() {
       });
 
       if (!processRes.ok) {
-        throw new Error("Failed to process attendance sheet");
+        const errData = await processRes.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to process attendance sheet");
       }
 
-      // Step 5: Verification & Fuzzy Matching Complete
+      // 5. Verification & Fuzzy Matching Complete
       setProcessingStep(5);
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 400));
 
-      // Redirect to the review workspace
+      // Redirect to review workspace
       router.push(`/scan/${scanId}/review`);
     } catch (err: any) {
       console.error(err);
@@ -193,19 +184,18 @@ export default function ScanAttendancePage() {
             Scan &amp; Digitize Attendance Sheet
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Upload paper attendance sheets, calibrate image angles, and run AI mark classification.
+            Upload a real photo of your classroom attendance sheet for OCR table segmentation and mark recognition.
           </p>
         </div>
 
-        {/* 1-Click Sample Sheet Button */}
-        <button
-          onClick={loadSampleSheet}
-          type="button"
-          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-200 font-semibold text-xs shadow-sm transition-all"
-        >
-          <Sparkles className="w-4 h-4 text-sky-600" />
-          Load Realistic Sample Sheet
-        </button>
+        {classesList.length === 0 && (
+          <Link
+            href="/classes"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-50 text-amber-800 border border-amber-300 font-semibold text-xs hover:bg-amber-100 transition-colors"
+          >
+            <PlusCircle className="w-4 h-4 text-amber-600" /> Create Your First Class
+          </Link>
+        )}
       </div>
 
       {errorMessage && (
@@ -224,7 +214,7 @@ export default function ScanAttendancePage() {
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
             className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all ${
-              selectedFile || isUsingSample
+              selectedFile
                 ? "border-sky-300 bg-sky-50/30"
                 : "border-slate-300 hover:border-sky-500 bg-white"
             }`}
@@ -250,11 +240,7 @@ export default function ScanAttendancePage() {
             </div>
 
             <p className="text-sm font-bold text-slate-800">
-              {isUsingSample
-                ? "Sample Attendance Sheet Loaded"
-                : selectedFile
-                ? selectedFile.name
-                : "Drag & drop attendance photo here"}
+              {selectedFile ? selectedFile.name : "Drag & drop attendance sheet photo here"}
             </p>
             <p className="text-xs text-slate-500 mt-1">
               Supports JPG, JPEG, PNG, or WebP up to 15 MB
@@ -271,9 +257,9 @@ export default function ScanAttendancePage() {
               <button
                 type="button"
                 onClick={() => cameraInputRef.current?.click()}
-                className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-xs font-semibold hover:bg-slate-200 transition-colors flex items-center gap-1.5"
+                className="px-3.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-xs font-semibold hover:bg-slate-200 transition-colors flex items-center gap-1.5"
               >
-                <Camera className="w-3.5 h-3.5" /> Camera
+                <Camera className="w-3.5 h-3.5" /> Capture Photo
               </button>
             </div>
           </div>
@@ -284,41 +270,54 @@ export default function ScanAttendancePage() {
               <Layers className="w-3.5 h-3.5 text-sky-600" /> Target Class &amp; Subject
             </h3>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  Class
-                </label>
-                <select
-                  value={classId}
-                  onChange={(e) => setClassId(e.target.value)}
-                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-sky-500"
+            {classesList.length === 0 ? (
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500 space-y-2">
+                <p>No classroom sections have been added yet.</p>
+                <Link
+                  href="/classes"
+                  className="inline-flex items-center gap-1 text-sky-600 font-bold hover:underline"
                 >
-                  {classesList.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                  Go to Classes &amp; Subjects to add one →
+                </Link>
               </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Class *
+                  </label>
+                  <select
+                    value={classId}
+                    onChange={(e) => setClassId(e.target.value)}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-sky-500"
+                  >
+                    {classesList.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  Subject
-                </label>
-                <select
-                  value={subjectId}
-                  onChange={(e) => setSubjectId(e.target.value)}
-                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-sky-500"
-                >
-                  {subjectsList.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.code})
-                    </option>
-                  ))}
-                </select>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Subject
+                  </label>
+                  <select
+                    value={subjectId}
+                    onChange={(e) => setSubjectId(e.target.value)}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-sky-500"
+                  >
+                    <option value="">None / General</option>
+                    {subjectsList.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Image Preprocessing Adjustment Toolbar */}
@@ -413,14 +412,14 @@ export default function ScanAttendancePage() {
           {/* Action Button */}
           <button
             type="button"
-            disabled={isProcessing}
+            disabled={isProcessing || !selectedFile}
             onClick={handleStartProcessing}
             className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-sky-600 to-teal-600 hover:from-sky-500 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-sky-600/30 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
           >
             {isProcessing ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
-                Processing Attendance Sheet...
+                Running Real OCR Recognition...
               </>
             ) : (
               <>
@@ -431,45 +430,53 @@ export default function ScanAttendancePage() {
           </button>
         </div>
 
-        {/* Right Column: Interactive Real-Time Preview */}
+        {/* Right Column: Live Preprocessed Image Preview */}
         <div className="lg:col-span-7 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div>
               <h3 className="font-bold text-sm text-slate-900">Document Image Preview</h3>
-              <p className="text-xs text-slate-500">Live perspective &amp; contrast calibration</p>
+              <p className="text-xs text-slate-500">
+                {selectedFile ? selectedFile.name : "Waiting for image selection"}
+              </p>
             </div>
-            {isUsingSample && (
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-300">
-                Official Roster Sample
-              </span>
-            )}
           </div>
 
           <div className="flex-1 min-h-[460px] bg-slate-900/5 rounded-xl border border-slate-200/80 mt-4 p-4 flex items-center justify-center overflow-hidden relative">
-            {/* Live Filtered Preview */}
-            <div
-              style={{
-                transform: `rotate(${rotationAngle}deg)`,
-                filter: filterString,
-                transition: "transform 0.3s ease, filter 0.15s ease",
-              }}
-              className="max-w-full max-h-full flex items-center justify-center"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={imagePreviewUrl}
-                alt="Attendance Sheet Preview"
-                className="max-h-[520px] w-auto object-contain rounded-lg shadow-md border border-slate-200"
-              />
-            </div>
+            {imagePreviewUrl ? (
+              <div
+                style={{
+                  transform: `rotate(${rotationAngle}deg)`,
+                  filter: filterString,
+                  transition: "transform 0.3s ease, filter 0.15s ease",
+                }}
+                className="max-w-full max-h-full flex items-center justify-center"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={imagePreviewUrl}
+                  alt="Attendance Sheet Preview"
+                  className="max-h-[520px] w-auto object-contain rounded-lg shadow-md border border-slate-200"
+                />
+              </div>
+            ) : (
+              <div className="text-center p-8 space-y-2 text-slate-400">
+                <Upload className="w-10 h-10 mx-auto stroke-1" />
+                <p className="text-xs font-semibold">No sheet uploaded yet</p>
+                <p className="text-[11px] text-slate-400 max-w-xs">
+                  Upload an attendance sheet photograph or take a picture using your camera to begin.
+                </p>
+              </div>
+            )}
 
             {/* Instruction Callout Overlay */}
-            <div className="absolute bottom-3 left-3 right-3 bg-slate-900/80 backdrop-blur-md text-white text-[11px] p-2.5 rounded-lg flex items-center gap-2">
-              <Info className="w-4 h-4 text-sky-400 shrink-0" />
-              <span>
-                Tip: Keep the sheet aligned horizontally. AI will automatically segment columns and recognize handwritten marks (✓, A, P, L, E).
-              </span>
-            </div>
+            {imagePreviewUrl && (
+              <div className="absolute bottom-3 left-3 right-3 bg-slate-900/80 backdrop-blur-md text-white text-[11px] p-2.5 rounded-lg flex items-center gap-2">
+                <Info className="w-4 h-4 text-sky-400 shrink-0" />
+                <span>
+                  Tip: Rotate so that text reads horizontally. AI will automatically segment table columns and recognize handwritten symbols.
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -484,10 +491,10 @@ export default function ScanAttendancePage() {
               </div>
               <div>
                 <h3 className="font-extrabold text-slate-900 text-base">
-                  Processing Attendance Sheet
+                  Processing Real Attendance Sheet
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Executing modular OCR and computer vision pipeline...
+                  Executing Tesseract OCR &amp; stroke morphology pipeline...
                 </p>
               </div>
             </div>
@@ -500,7 +507,7 @@ export default function ScanAttendancePage() {
                 ) : (
                   <div className="w-4 h-4 rounded-full border-2 border-sky-500 border-t-transparent animate-spin shrink-0" />
                 )}
-                <span className="font-medium text-slate-800">1. Image validation &amp; calibration</span>
+                <span className="font-medium text-slate-800">1. Upload &amp; sharp image calibration</span>
               </div>
 
               <div className={`flex items-center gap-3 p-2 rounded-lg ${processingStep >= 2 ? "bg-slate-50" : "opacity-40"}`}>
@@ -522,7 +529,7 @@ export default function ScanAttendancePage() {
                 ) : (
                   <div className="w-4 h-4 rounded-full border-2 border-slate-300 shrink-0" />
                 )}
-                <span className="font-medium text-slate-800">3. OCR Header &amp; Student Column Extraction</span>
+                <span className="font-medium text-slate-800">3. Tesseract OCR text &amp; header recognition</span>
               </div>
 
               <div className={`flex items-center gap-3 p-2 rounded-lg ${processingStep >= 4 ? "bg-slate-50" : "opacity-40"}`}>
@@ -533,7 +540,7 @@ export default function ScanAttendancePage() {
                 ) : (
                   <div className="w-4 h-4 rounded-full border-2 border-slate-300 shrink-0" />
                 )}
-                <span className="font-medium text-slate-800">4. Handwritten mark morphology classification</span>
+                <span className="font-medium text-slate-800">4. Cell pixel density &amp; mark morphology classification</span>
               </div>
 
               <div className={`flex items-center gap-3 p-2 rounded-lg ${processingStep >= 5 ? "bg-slate-50" : "opacity-40"}`}>
@@ -542,7 +549,7 @@ export default function ScanAttendancePage() {
                 ) : (
                   <div className="w-4 h-4 rounded-full border-2 border-slate-300 shrink-0" />
                 )}
-                <span className="font-medium text-slate-800">5. Student fuzzy database matching &amp; confidence</span>
+                <span className="font-medium text-slate-800">5. Student database mapping &amp; confidence scores</span>
               </div>
             </div>
           </div>

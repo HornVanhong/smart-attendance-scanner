@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import {
   BarChart3,
   Download,
@@ -14,6 +15,7 @@ import {
   UserX,
   Clock,
   Sparkles,
+  CheckCircle2,
 } from "lucide-react";
 import {
   BarChart,
@@ -32,14 +34,17 @@ import * as XLSX from "xlsx";
 
 export default function ReportsPage() {
   const [data, setData] = useState<any>(null);
+  const [school, setSchool] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [periodFilter, setPeriodFilter] = useState("WEEKLY");
 
   useEffect(() => {
-    fetch("/api/reports/attendance")
-      .then((r) => r.json())
-      .then((d) => {
-        setData(d);
+    Promise.all([
+      fetch("/api/reports/attendance").then((r) => r.json()),
+      fetch("/api/auth/me").then((r) => r.json()),
+    ])
+      .then(([repData, authData]) => {
+        setData(repData);
+        setSchool(authData.school);
         setLoading(false);
       })
       .catch((e) => {
@@ -49,28 +54,31 @@ export default function ReportsPage() {
   }, []);
 
   const summary = data?.summary || {
-    totalRecords: 35,
-    overallRate: 94,
-    presentCount: 30,
-    absentCount: 3,
-    lateCount: 2,
-    excusedCount: 1,
+    totalRecords: 0,
+    overallRate: 0,
+    presentCount: 0,
+    absentCount: 0,
+    lateCount: 0,
+    excusedCount: 0,
   };
 
   const pieData = [
-    { name: "Present", value: summary.presentCount || 30, color: "#10b981" },
-    { name: "Absent", value: summary.absentCount || 3, color: "#ef4444" },
-    { name: "Late", value: summary.lateCount || 2, color: "#f59e0b" },
-    { name: "Excused", value: summary.excusedCount || 1, color: "#3b82f6" },
+    { name: "Present", value: summary.presentCount || 0, color: "#10b981" },
+    { name: "Absent", value: summary.absentCount || 0, color: "#ef4444" },
+    { name: "Late", value: summary.lateCount || 0, color: "#f59e0b" },
+    { name: "Excused", value: summary.excusedCount || 0, color: "#3b82f6" },
   ];
 
   const classData = data?.classBreakdown || [];
   const lowAttendanceStudents = data?.lowAttendanceAlerts || [];
+  const hasRecords = summary.totalRecords > 0;
 
   const handleExportExcel = () => {
-    if (!data) return;
+    if (!data || !hasRecords) {
+      alert("No attendance records available to export.");
+      return;
+    }
 
-    // Build worksheet from student stats
     const wsData = (data.studentStats || []).map((s: any) => ({
       "Student ID": s.studentNumber,
       "Full Name": s.studentName,
@@ -85,11 +93,14 @@ export default function ReportsPage() {
     const ws = XLSX.utils.json_to_sheet(wsData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Attendance Audit");
-    XLSX.writeFile(wb, `Oakridge_Attendance_Report_${new Date().toISOString().split("T")[0]}.xlsx`);
+    XLSX.writeFile(wb, `${school?.name || "School"}_Attendance_Report_${new Date().toISOString().split("T")[0]}.xlsx`);
   };
 
   const handleExportCSV = () => {
-    if (!data) return;
+    if (!data || !hasRecords) {
+      alert("No attendance records available to export.");
+      return;
+    }
     const headers = ["StudentID,FullName,Class,Sessions,Present,Absent,Rate,Status"];
     const rows = (data.studentStats || []).map(
       (s: any) =>
@@ -99,7 +110,7 @@ export default function ReportsPage() {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `Oakridge_Report_${new Date().toISOString().split("T")[0]}.csv`);
+    link.setAttribute("download", `${school?.name || "School"}_Report_${new Date().toISOString().split("T")[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -111,12 +122,12 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Printable Header (Visible only when printing) */}
+      {/* Printable Header */}
       <div className="hidden print:block text-center border-b pb-4 mb-6">
-        <h1 className="text-2xl font-bold">OAKRIDGE ACADEMY</h1>
+        <h1 className="text-2xl font-bold uppercase tracking-wide">{school?.name || "Official Attendance Ledger"}</h1>
         <p className="text-sm">Official Classroom Attendance Audit &amp; Performance Report</p>
         <p className="text-xs text-gray-500 mt-1">
-          Generated on: {new Date().toLocaleDateString()} • Reporting Period: Academic Year 2024–2025
+          Generated on: {new Date().toLocaleDateString()} • Real Database Records
         </p>
       </div>
 
@@ -127,26 +138,29 @@ export default function ReportsPage() {
             Attendance Reports &amp; Analytics
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Export official reports, verify attendance percentages, and audit student absence trends.
+            Real performance metrics computed directly from verified attendance database records.
           </p>
         </div>
 
         <div className="flex items-center gap-2.5">
           <button
             onClick={handleExportCSV}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors"
+            disabled={!hasRecords}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors disabled:opacity-40"
           >
             <Download className="w-3.5 h-3.5" /> CSV
           </button>
           <button
             onClick={handleExportExcel}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold transition-colors shadow-xs"
+            disabled={!hasRecords}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold transition-colors shadow-xs disabled:opacity-40"
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Export Excel (.xlsx)
           </button>
           <button
             onClick={handlePrint}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-md shadow-slate-900/20 transition-colors"
+            disabled={!hasRecords}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-md shadow-slate-900/20 transition-colors disabled:opacity-40"
           >
             <Printer className="w-4 h-4" /> Print / PDF
           </button>
@@ -159,7 +173,7 @@ export default function ReportsPage() {
           <div>
             <span className="text-[10px] font-bold text-slate-500 uppercase">Overall Attendance</span>
             <div className="text-2xl font-extrabold text-emerald-600">{summary.overallRate}%</div>
-            <span className="text-[11px] text-slate-400">Target: 90%+</span>
+            <span className="text-[11px] text-slate-400">Total {summary.totalRecords} Records</span>
           </div>
           <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
             <UserCheck className="w-5 h-5" />
@@ -194,7 +208,7 @@ export default function ReportsPage() {
             <div className="text-2xl font-extrabold text-amber-600">
               {summary.lateCount + summary.excusedCount}
             </div>
-            <span className="text-[11px] text-slate-400">Authorized/Tardy</span>
+            <span className="text-[11px] text-slate-400">Tardy / Leave</span>
           </div>
           <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
             <Clock className="w-5 h-5" />
@@ -208,25 +222,31 @@ export default function ReportsPage() {
         <div className="lg:col-span-5 bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm space-y-4">
           <h3 className="font-bold text-sm text-slate-900">Status Distribution</h3>
           <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={85}
-                  paddingAngle={4}
-                  dataKey="value"
-                >
-                  {pieData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend verticalAlign="bottom" height={36} />
-              </PieChart>
-            </ResponsiveContainer>
+            {hasRecords ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={pieData.filter((p) => p.value > 0)}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={85}
+                    paddingAngle={4}
+                    dataKey="value"
+                  >
+                    {pieData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend verticalAlign="bottom" height={36} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-slate-400 text-xs">
+                No attendance status records yet.
+              </div>
+            )}
           </div>
         </div>
 
@@ -234,15 +254,21 @@ export default function ReportsPage() {
         <div className="lg:col-span-7 bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm space-y-4">
           <h3 className="font-bold text-sm text-slate-900">Attendance Rate by Class</h3>
           <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={classData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} tickLine={false} />
-                <YAxis domain={[80, 100]} stroke="#94a3b8" fontSize={11} tickLine={false} />
-                <Tooltip />
-                <Bar dataKey="attendanceRate" name="Rate %" fill="#0284c7" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {classData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={classData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} tickLine={false} />
+                  <YAxis domain={[0, 100]} stroke="#94a3b8" fontSize={11} tickLine={false} />
+                  <Tooltip />
+                  <Bar dataKey="attendanceRate" name="Rate %" fill="#0284c7" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-slate-400 text-xs">
+                No classes registered yet.
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -260,52 +286,62 @@ export default function ReportsPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px]">
-              <tr>
-                <th className="py-2.5 px-3">Student</th>
-                <th className="py-2.5 px-3">ID</th>
-                <th className="py-2.5 px-3">Class</th>
-                <th className="py-2.5 px-3">Sessions</th>
-                <th className="py-2.5 px-3">Absences</th>
-                <th className="py-2.5 px-3">Rate</th>
-                <th className="py-2.5 px-3 text-right">Intervention Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {lowAttendanceStudents.map((st: any) => (
-                <tr key={st.studentId} className="hover:bg-red-50/30">
-                  <td className="py-3 px-3 font-bold text-slate-900">{st.studentName}</td>
-                  <td className="py-3 px-3 font-mono text-slate-600">{st.studentNumber}</td>
-                  <td className="py-3 px-3 text-slate-600">{st.className}</td>
-                  <td className="py-3 px-3">{st.totalSessions}</td>
-                  <td className="py-3 px-3 font-bold text-red-600">{st.absentCount}</td>
-                  <td className="py-3 px-3 font-extrabold text-red-600">{st.rate}%</td>
-                  <td className="py-3 px-3 text-right">
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800 border border-red-300">
-                      Counselor Contact Required
-                    </span>
-                  </td>
+          {lowAttendanceStudents.length > 0 ? (
+            <table className="w-full text-left border-collapse text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px]">
+                <tr>
+                  <th className="py-2.5 px-3">Student</th>
+                  <th className="py-2.5 px-3">ID</th>
+                  <th className="py-2.5 px-3">Class</th>
+                  <th className="py-2.5 px-3">Sessions</th>
+                  <th className="py-2.5 px-3">Absences</th>
+                  <th className="py-2.5 px-3">Rate</th>
+                  <th className="py-2.5 px-3 text-right">Intervention Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {lowAttendanceStudents.map((st: any) => (
+                  <tr key={st.studentId} className="hover:bg-red-50/30">
+                    <td className="py-3 px-3 font-bold text-slate-900">{st.studentName}</td>
+                    <td className="py-3 px-3 font-mono text-slate-600">{st.studentNumber}</td>
+                    <td className="py-3 px-3 text-slate-600">{st.className}</td>
+                    <td className="py-3 px-3">{st.totalSessions}</td>
+                    <td className="py-3 px-3 font-bold text-red-600">{st.absentCount}</td>
+                    <td className="py-3 px-3 font-extrabold text-red-600">{st.rate}%</td>
+                    <td className="py-3 px-3 text-right">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800 border border-red-300">
+                        Counselor Contact Required
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="p-8 text-center text-slate-400 text-xs">
+              <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto mb-1" />
+              <p className="font-semibold text-slate-700">No attendance alerts</p>
+              <p className="text-[11px] text-slate-400">All students maintain satisfactory attendance.</p>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Official Signature Lines for Printed Reports */}
-      <div className="hidden print:grid grid-cols-2 gap-12 pt-16 border-t mt-12 text-xs">
-        <div>
-          <div className="border-b border-gray-400 w-64 mb-2 pb-6">Prof. Michael Chang</div>
-          <p className="font-bold">Reporting Faculty Signature</p>
-          <p className="text-gray-500">Department of Mathematics</p>
+      {hasRecords && (
+        <div className="hidden print:grid grid-cols-2 gap-12 pt-16 border-t mt-12 text-xs">
+          <div>
+            <div className="border-b border-gray-400 w-64 mb-2 pb-6" />
+            <p className="font-bold">Reporting Faculty Signature</p>
+            <p className="text-gray-500">Verified Classroom Instructor</p>
+          </div>
+          <div className="text-right flex flex-col items-end">
+            <div className="border-b border-gray-400 w-64 mb-2 pb-6" />
+            <p className="font-bold">Principal / Academic Dean</p>
+            <p className="text-gray-500">{school?.name || "School Administration"}</p>
+          </div>
         </div>
-        <div className="text-right flex flex-col items-end">
-          <div className="border-b border-gray-400 w-64 mb-2 pb-6">Dr. Sarah Jenkins</div>
-          <p className="font-bold">Principal / Academic Dean</p>
-          <p className="text-gray-500">Oakridge Academy</p>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dbStore, StudentModel } from "@/lib/db-store";
+import { prisma } from "@/lib/prisma";
+import { ensureSystemInitialized } from "@/lib/db-init";
 
 export async function POST(req: NextRequest) {
   try {
+    const school = await ensureSystemInitialized();
     const body = await req.json();
     const { students: rawStudents, classId } = body;
 
@@ -10,49 +12,66 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No student records provided" }, { status: 400 });
     }
 
-    const school = dbStore.getSchool();
-    const existing = dbStore.getStudents();
-    const existingNums = new Set(existing.map((s) => s.studentNumber.toUpperCase()));
+    if (!classId) {
+      return NextResponse.json({ error: "Please select an existing class for import" }, { status: 400 });
+    }
 
-    const imported: StudentModel[] = [];
+    const existingStudents = await prisma.student.findMany({
+      where: { schoolId: school.id },
+      select: { studentNumber: true },
+    });
+    const existingNums = new Set(existingStudents.map((s) => s.studentNumber.toUpperCase()));
+
+    const imported: any[] = [];
     const skipped: string[] = [];
 
-    rawStudents.forEach((raw) => {
-      const num = (raw.studentNumber || raw["Student ID"] || raw.id || "").trim();
+    for (const raw of rawStudents) {
+      const num = (raw.studentNumber || raw["Student ID"] || raw.id || "").trim().toUpperCase();
       const name = (raw.fullName || raw.name || raw["Full Name"] || "").trim();
       const gender = (raw.gender || raw.sex || "M").trim().toUpperCase() === "F" ? "F" : "M";
-      const email = (raw.email || "").trim() || undefined;
+      const email = (raw.email || "").trim() || null;
 
       if (!num || !name) {
         skipped.push(`${num || "Unknown"}: Missing number or name`);
-        return;
+        continue;
       }
 
-      if (existingNums.has(num.toUpperCase())) {
+      if (existingNums.has(num)) {
         skipped.push(`${num} (${name}): Duplicate student number`);
-        return;
+        continue;
       }
 
-      existingNums.add(num.toUpperCase());
-      const newSt = dbStore.createStudent({
-        schoolId: school.id,
-        classId: classId || "cls_10a",
-        studentNumber: num,
-        fullName: name,
-        gender,
-        email,
-        enrollmentDate: new Date().toISOString().split("T")[0],
-        status: "ACTIVE",
+      existingNums.add(num);
+      const newSt = await prisma.student.create({
+        data: {
+          schoolId: school.id,
+          classId,
+          studentNumber: num,
+          fullName: name,
+          gender,
+          email,
+          enrollmentDate: new Date(),
+          status: "ACTIVE",
+        },
+        include: {
+          class: { select: { name: true } },
+        },
       });
-      imported.push(newSt);
-    });
 
-    dbStore.addAuditLog({
-      action: "BULK_STUDENT_IMPORT",
-      entityType: "Student",
-      userId: "usr_admin",
-      userName: "Dr. Sarah Jenkins",
-      details: JSON.stringify({ importedCount: imported.length, skippedCount: skipped.length }),
+      imported.push({
+        ...newSt,
+        className: newSt.class?.name || "Unassigned",
+        enrollmentDate: newSt.enrollmentDate.toISOString().split("T")[0],
+      });
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        schoolId: school.id,
+        action: "BULK_STUDENT_IMPORT",
+        entityType: "Student",
+        details: JSON.stringify({ importedCount: imported.length, skippedCount: skipped.length }),
+      },
     });
 
     return NextResponse.json({

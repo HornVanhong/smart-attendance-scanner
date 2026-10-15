@@ -14,23 +14,23 @@ import {
   Clock,
   Sparkles,
 } from "lucide-react";
-import { SymbolConfigModel } from "@/lib/db-store";
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<"SYMBOLS" | "SCHOOL" | "AUDIT">("SYMBOLS");
-  const [symbols, setSymbols] = useState<SymbolConfigModel[]>([]);
+  const [symbols, setSymbols] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [schoolSuccess, setSchoolSuccess] = useState(false);
 
   // School profile state
   const [schoolForm, setSchoolForm] = useState({
-    name: "Oakridge Academy",
-    code: "OAK-2024",
-    address: "742 Evergreen Terrace, Springfield",
-    phone: "+1 (555) 234-5678",
-    email: "admin@oakridge.edu",
+    name: "",
+    code: "",
+    address: "",
+    phone: "",
+    email: "",
   });
 
   // New symbol state
@@ -42,10 +42,23 @@ export default function SettingsPage() {
 
   const fetchData = () => {
     setLoading(true);
-    fetch("/api/settings/symbols")
-      .then((r) => r.json())
-      .then((d) => {
-        setSymbols(d.symbols || []);
+    Promise.all([
+      fetch("/api/settings/symbols").then((r) => r.json()),
+      fetch("/api/settings/school").then((r) => r.json()),
+      fetch("/api/audit").then((r) => r.json()),
+    ])
+      .then(([symData, schData, audData]) => {
+        setSymbols(symData.symbols || []);
+        if (schData.school) {
+          setSchoolForm({
+            name: schData.school.name || "",
+            code: schData.school.code || "",
+            address: schData.school.address || "",
+            phone: schData.school.phone || "",
+            email: schData.school.email || "",
+          });
+        }
+        setAuditLogs(audData.logs || []);
         setLoading(false);
       })
       .catch((e) => {
@@ -69,9 +82,8 @@ export default function SettingsPage() {
 
   const handleAddSymbol = () => {
     if (!newSymbol.symbol) return;
-    const added: SymbolConfigModel = {
+    const added = {
       id: `sym_${Date.now()}`,
-      schoolId: "sch_oakridge_academy",
       symbol: newSymbol.symbol.trim(),
       mappedStatus: newSymbol.mappedStatus,
       description: newSymbol.description || "Custom symbol rule",
@@ -106,6 +118,26 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSaveSchool = async () => {
+    setSaving(true);
+    setSchoolSuccess(false);
+    try {
+      const res = await fetch("/api/settings/school", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(schoolForm),
+      });
+      if (res.ok) {
+        setSchoolSuccess(true);
+        setTimeout(() => setSchoolSuccess(false), 3000);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       {/* Header */}
@@ -115,7 +147,7 @@ export default function SettingsPage() {
             Settings &amp; Symbol Rules
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Configure handwritten symbol interpretations, school profiles, and audit controls.
+            Configure real handwritten symbol interpretations, school profile, and audit logs.
           </p>
         </div>
 
@@ -156,7 +188,7 @@ export default function SettingsPage() {
             <div>
               <p className="font-bold">Handwritten Attendance Symbol Policy</p>
               <p className="text-sky-700 mt-0.5 leading-relaxed">
-                Schools have unique roll-call shorthand. The AI OCR pipeline classifies the original handwriting mark into raw symbols (e.g. ✓, A, P, L, E) and applies your school&apos;s custom mapping below. Original handwritten symbols are always preserved separately for complete audit fidelity.
+                The AI OCR pipeline classifies raw handwriting marks (e.g. ✓, A, P, L, E) and applies your school&apos;s custom mapping below. Original recognized marks are always preserved separately in the database for complete audit fidelity.
               </p>
             </div>
           </div>
@@ -278,6 +310,14 @@ export default function SettingsPage() {
       {tab === "SCHOOL" && (
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 space-y-5">
           <h3 className="font-bold text-sm text-slate-900">School Profile &amp; Organization Identity</h3>
+
+          {schoolSuccess && (
+            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <span>School profile updated in database!</span>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
             <div>
               <label className="block font-bold text-slate-700 mb-1">School Name</label>
@@ -328,10 +368,11 @@ export default function SettingsPage() {
 
           <div className="pt-2 flex justify-end">
             <button
-              onClick={() => alert("School profile saved.")}
+              onClick={handleSaveSchool}
+              disabled={saving}
               className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow-md shadow-sky-600/30"
             >
-              Save Profile
+              {saving ? "Saving..." : "Save Profile"}
             </button>
           </div>
         </div>
@@ -342,39 +383,29 @@ export default function SettingsPage() {
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-sm text-slate-900">System Security &amp; Activity Audit Log</h3>
-            <span className="text-[11px] text-slate-400">Immutable Ledger</span>
+            <span className="text-[11px] text-slate-400">Prisma Database Log</span>
           </div>
 
           <div className="divide-y divide-slate-100 text-xs">
-            <div className="py-3 flex items-start justify-between gap-4">
-              <div>
-                <p className="font-bold text-slate-900">ATTENDANCE_VERIFIED</p>
-                <p className="text-slate-500 text-[11px]">
-                  User: Prof. Michael Chang • Entity: Scan scan_sample_01 • 30 cells committed to master records
-                </p>
+            {auditLogs.length > 0 ? (
+              auditLogs.map((log) => (
+                <div key={log.id} className="py-3 flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-bold text-slate-900">{log.action}</p>
+                    <p className="text-slate-500 text-[11px]">
+                      Entity: {log.entityType} {log.entityId ? `(${log.entityId})` : ""} {log.details ? `• ${log.details}` : ""}
+                    </p>
+                  </div>
+                  <span className="text-slate-400 text-[11px] shrink-0 font-mono">
+                    {new Date(log.createdAt).toLocaleTimeString()}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div className="p-8 text-center text-slate-400 text-xs">
+                No activity logs recorded yet.
               </div>
-              <span className="text-slate-400 text-[11px] shrink-0 font-mono">Just now</span>
-            </div>
-
-            <div className="py-3 flex items-start justify-between gap-4">
-              <div>
-                <p className="font-bold text-slate-900">OCR_PROCESSING_COMPLETED</p>
-                <p className="text-slate-500 text-[11px]">
-                  User: Prof. Michael Chang • 10 students identified, 26 high confidence, 4 flagged for review
-                </p>
-              </div>
-              <span className="text-slate-400 text-[11px] shrink-0 font-mono">10m ago</span>
-            </div>
-
-            <div className="py-3 flex items-start justify-between gap-4">
-              <div>
-                <p className="font-bold text-slate-900">SCAN_UPLOAD</p>
-                <p className="text-slate-500 text-[11px]">
-                  File: Grade10_Math_Attendance_Oct14.jpg (1.42 MB) • Target: Grade 10-A Math
-                </p>
-              </div>
-              <span className="text-slate-400 text-[11px] shrink-0 font-mono">15m ago</span>
-            </div>
+            )}
           </div>
         </div>
       )}

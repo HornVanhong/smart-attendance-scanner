@@ -1,68 +1,106 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dbStore } from "@/lib/db-store";
+import { prisma } from "@/lib/prisma";
+import { ensureSystemInitialized } from "@/lib/db-init";
 
 export async function GET(req: NextRequest) {
+  await ensureSystemInitialized();
   const { searchParams } = new URL(req.url);
-  const classId = searchParams.get("classId") || undefined;
-  const subjectId = searchParams.get("subjectId") || undefined;
+  const classId = searchParams.get("classId");
+  const subjectId = searchParams.get("subjectId");
 
-  const records = dbStore.getRecords({ classId, subjectId });
-  const students = dbStore.getStudents({ classId });
-  const classes = dbStore.getClasses();
-  const subjects = dbStore.getSubjects();
+  const whereClause: any = {};
+  if (classId && classId !== "ALL") whereClause.classId = classId;
+  if (subjectId && subjectId !== "ALL") whereClause.subjectId = subjectId;
 
-  // Metrics calculation
+  // Real Attendance Records
+  const records = await prisma.attendanceRecord.findMany({
+    where: whereClause,
+    include: {
+      student: { select: { fullName: true, studentNumber: true } },
+      class: { select: { name: true } },
+    },
+  });
+
+  const students = await prisma.student.findMany({
+    where: classId && classId !== "ALL" ? { classId } : {},
+    include: { class: { select: { name: true } } },
+  });
+
+  const classes = await prisma.class.findMany({
+    include: { _count: { select: { students: true } } },
+  });
+
+  const sheets = await prisma.attendanceSheet.findMany();
+
+  // Metrics calculation strictly from real database records
   const totalRecords = records.length;
   const presentCount = records.filter((r) => r.status === "PRESENT").length;
   const absentCount = records.filter((r) => r.status === "ABSENT").length;
   const lateCount = records.filter((r) => r.status === "LATE").length;
   const excusedCount = records.filter((r) => r.status === "EXCUSED").length;
 
-  const overallRate = totalRecords > 0 ? Math.round(((presentCount + lateCount) / totalRecords) * 100) : 92;
+  const overallRate = totalRecords > 0 ? Math.round(((presentCount + lateCount) / totalRecords) * 100) : 0;
 
-  // Class breakdown
+  // Real Class Breakdown
   const classBreakdown = classes.map((c) => {
     const classRecs = records.filter((r) => r.classId === c.id);
     const cTotal = classRecs.length;
     const cPresent = classRecs.filter((r) => r.status === "PRESENT" || r.status === "LATE").length;
-    const rate = cTotal > 0 ? Math.round((cPresent / cTotal) * 100) : 94;
+    const rate = cTotal > 0 ? Math.round((cPresent / cTotal) * 100) : 0;
+
     return {
       id: c.id,
       name: c.name,
-      totalStudents: c.studentCount || 15,
+      totalStudents: c._count.students,
       recordsCount: cTotal,
       attendanceRate: rate,
     };
   });
 
-  // Daily trends (e.g. over past 7 days)
-  const days = ["Mon", "Tue", "Wed", "Thu", "Fri"];
-  const trends = [
-    { day: "Mon", present: 94, absent: 4, late: 2 },
-    { day: "Tue", present: 91, absent: 6, late: 3 },
-    { day: "Wed", present: 95, absent: 3, late: 2 },
-    { day: "Thu", present: 89, absent: 8, late: 3 },
-    { day: "Fri", present: 93, absent: 5, late: 2 },
-  ];
+  // Real Daily Trends (group by day of week)
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const trendsMap = new Map<string, { present: number; absent: number; late: number; total: number }>();
 
-  // Students with low attendance (<80%)
+  ["Mon", "Tue", "Wed", "Thu", "Fri"].forEach((d) => {
+    trendsMap.set(d, { present: 0, absent: 0, late: 0, total: 0 });
+  });
+
+  records.forEach((r) => {
+    const day = dayNames[r.attendanceDate.getDay()];
+    if (trendsMap.has(day)) {
+      const item = trendsMap.get(day)!;
+      item.total++;
+      if (r.status === "PRESENT") item.present++;
+      else if (r.status === "ABSENT") item.absent++;
+      else if (r.status === "LATE") item.late++;
+    }
+  });
+
+  const trends = Array.from(trendsMap.entries()).map(([day, counts]) => ({
+    day,
+    present: counts.total > 0 ? Math.round((counts.present / counts.total) * 100) : 0,
+    absent: counts.total > 0 ? Math.round((counts.absent / counts.total) * 100) : 0,
+    late: counts.total > 0 ? Math.round((counts.late / counts.total) * 100) : 0,
+  }));
+
+  // Student Attendance Statistics
   const studentStats = students.map((st) => {
     const stRecs = records.filter((r) => r.studentId === st.id);
     const total = stRecs.length;
     const present = stRecs.filter((r) => r.status === "PRESENT" || r.status === "LATE").length;
     const absent = stRecs.filter((r) => r.status === "ABSENT").length;
-    const rate = total > 0 ? Math.round((present / total) * 100) : (st.fullName.includes("Charles") ? 66 : 95);
+    const rate = total > 0 ? Math.round((present / total) * 100) : 100;
 
     return {
       studentId: st.id,
       studentName: st.fullName,
       studentNumber: st.studentNumber,
-      className: st.className,
-      totalSessions: total || 12,
-      presentCount: present || (rate < 80 ? 8 : 11),
-      absentCount: absent || (rate < 80 ? 4 : 1),
+      className: st.class?.name || "Unassigned",
+      totalSessions: total,
+      presentCount: present,
+      absentCount: absent,
       rate,
-      isAlert: rate < 80,
+      isAlert: total > 0 && rate < 80,
     };
   });
 
@@ -72,14 +110,14 @@ export async function GET(req: NextRequest) {
     summary: {
       totalRecords,
       overallRate,
-      presentCount: presentCount || 24,
-      absentCount: absentCount || 3,
-      lateCount: lateCount || 2,
-      excusedCount: excusedCount || 1,
+      presentCount,
+      absentCount,
+      lateCount,
+      excusedCount,
       totalStudents: students.length,
       totalClasses: classes.length,
-      scansCount: dbStore.getSheets().length,
-      scansRequiringReview: dbStore.getSheets().filter((s) => s.verificationStatus === "IN_REVIEW").length,
+      scansCount: sheets.length,
+      scansRequiringReview: sheets.filter((s) => s.verificationStatus === "IN_REVIEW").length,
     },
     classBreakdown,
     trends,

@@ -29,9 +29,9 @@ interface SidebarProps {
 export function Sidebar({ collapsed, mobileOpen, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const [currentUser, setCurrentUser] = useState<{ name: string; role: string; email: string }>({
-    name: "Prof. Michael Chang",
+    name: "Teacher",
     role: "TEACHER",
-    email: "mchang@oakridge.edu",
+    email: "teacher@school.edu",
   });
   const [isSwitchingRole, setIsSwitchingRole] = useState(false);
 
@@ -187,7 +187,7 @@ export function Sidebar({ collapsed, mobileOpen, onMobileClose }: SidebarProps) 
                 <span>Switch Role:</span>
                 <div className="flex gap-1">
                   <button
-                    onClick={() => handleRoleChange("usr_teacher_chang")}
+                    onClick={() => handleRoleChange("usr_teacher")}
                     className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${
                       currentUser.role === "TEACHER"
                         ? "bg-sky-600 text-white"
@@ -198,7 +198,7 @@ export function Sidebar({ collapsed, mobileOpen, onMobileClose }: SidebarProps) 
                     Teacher
                   </button>
                   <button
-                    onClick={() => handleRoleChange("usr_reviewer_elena")}
+                    onClick={() => handleRoleChange("usr_reviewer")}
                     className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${
                       currentUser.role === "ATTENDANCE_REVIEWER"
                         ? "bg-amber-600 text-white"
