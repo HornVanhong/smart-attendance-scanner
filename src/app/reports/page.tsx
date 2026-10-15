@@ -20,6 +20,8 @@ import {
   Filter,
   Eye,
   Search,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import {
   BarChart,
@@ -130,6 +132,24 @@ export default function ReportsPage() {
     );
   });
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedClass, selectedSubject, searchStudent, viewMode]);
+
+  const totalFilteredCount = filteredStudentStats.length;
+  const totalPages = Math.max(1, Math.ceil(totalFilteredCount / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+
+  const paginatedStudentStats = useMemo(() => {
+    if (pageSize >= 9999) return filteredStudentStats;
+    const start = (safePage - 1) * pageSize;
+    return filteredStudentStats.slice(start, start + pageSize);
+  }, [filteredStudentStats, safePage, pageSize]);
+
   const handleOpenStudentView = (id: string) => {
     if (!id) return;
     setViewStudentId(id);
@@ -144,6 +164,91 @@ export default function ReportsPage() {
         console.error(e);
         setLoadingDetails(false);
       });
+  };
+
+  const renderPagination = (itemName = "students") => {
+    if (totalFilteredCount === 0) return null;
+    return (
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-200 text-xs no-print">
+        <div className="flex items-center gap-2 text-slate-500">
+          <span>Show</span>
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value));
+              setCurrentPage(1);
+            }}
+            className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
+          >
+            <option value={10}>10</option>
+            <option value={15}>15</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+            <option value={9999}>All ({totalFilteredCount})</option>
+          </select>
+          <span>
+            per page • Showing <strong>{totalFilteredCount === 0 ? 0 : (safePage - 1) * pageSize + 1}</strong> to{" "}
+            <strong>{Math.min(safePage * pageSize, totalFilteredCount)}</strong> of{" "}
+            <strong>{totalFilteredCount}</strong> {itemName}
+          </span>
+        </div>
+
+        {totalPages > 1 && (
+          <div className="flex items-center gap-1.5 self-end sm:self-auto">
+            <button
+              type="button"
+              disabled={safePage <= 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition-colors"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" /> Previous
+            </button>
+
+            <div className="flex items-center gap-1">
+              {Array.from({ length: totalPages }).map((_, i) => {
+                const pNum = i + 1;
+                if (
+                  totalPages > 7 &&
+                  pNum !== 1 &&
+                  pNum !== totalPages &&
+                  Math.abs(pNum - safePage) > 1
+                ) {
+                  if (pNum === 2 || pNum === totalPages - 1) {
+                    return <span key={`ell-${pNum}`} className="px-1 text-slate-400">...</span>;
+                  }
+                  return null;
+                }
+
+                return (
+                  <button
+                    key={`pg-${pNum}`}
+                    type="button"
+                    onClick={() => setCurrentPage(pNum)}
+                    className={`min-w-[28px] h-7 rounded-lg text-xs font-bold transition-all ${
+                      safePage === pNum
+                        ? "bg-slate-900 text-white shadow-xs"
+                        : "border border-slate-200 bg-white hover:bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    {pNum}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              type="button"
+              disabled={safePage >= totalPages}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition-colors"
+            >
+              Next <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const displaySubjects = useMemo(() => {
@@ -965,14 +1070,15 @@ export default function ReportsPage() {
 
               <tbody className="divide-y divide-slate-100 bg-white">
                 {filteredStudentStats.length > 0 ? (
-                  filteredStudentStats.map((st: any, idx: number) => {
+                  paginatedStudentStats.map((st: any, idx: number) => {
                     let sTotAbsent = 0;
                     let sTotPermission = 0;
+                    const rowNumber = (safePage - 1) * pageSize + idx + 1;
 
                     return (
                       <tr key={st.studentId} className="hover:bg-slate-50/80 transition-colors">
                         <td className="py-2.5 px-3 text-center text-slate-400 font-mono border-r border-slate-100">
-                          {idx + 1}
+                          {rowNumber}
                         </td>
                         <td className="py-2.5 px-3 border-r border-slate-100">
                           <button
@@ -1077,6 +1183,9 @@ export default function ReportsPage() {
               )}
             </table>
           </div>
+
+          {/* Matrix View Pagination */}
+          {renderPagination("students")}
         </div>
       ) : (
         <>
@@ -1165,9 +1274,9 @@ export default function ReportsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredStudentStats.map((st: any, idx: number) => (
+                {paginatedStudentStats.map((st: any, idx: number) => (
                   <tr key={st.studentId} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="py-3 px-3 text-slate-400 font-mono text-[11px]">{idx + 1}</td>
+                    <td className="py-3 px-3 text-slate-400 font-mono text-[11px]">{(safePage - 1) * pageSize + idx + 1}</td>
                     <td className="py-3 px-3 font-mono font-bold text-sky-700">{st.studentNumber}</td>
                     <td className="py-3 px-3">
                       <button
@@ -1221,6 +1330,9 @@ export default function ReportsPage() {
             </div>
           )}
         </div>
+
+        {/* Ledger Table Pagination */}
+        {renderPagination("students")}
       </div>
 
       {/* Charts Row */}

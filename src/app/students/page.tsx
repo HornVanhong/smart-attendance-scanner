@@ -20,6 +20,8 @@ import {
   BookOpen,
   Clock,
   FileCheck,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { StudentModel, ClassModel } from "@/lib/db-store";
 
@@ -114,6 +116,110 @@ export default function StudentsPage() {
       return matchSearch && matchClass && matchStatus;
     });
   }, [students, search, selectedClass, selectedStatus]);
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, selectedClass, selectedStatus]);
+
+  const totalFilteredCount = filteredStudents.length;
+  const totalPages = Math.max(1, Math.ceil(totalFilteredCount / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+
+  const paginatedStudents = useMemo(() => {
+    if (pageSize >= 9999) return filteredStudents;
+    const start = (safePage - 1) * pageSize;
+    return filteredStudents.slice(start, start + pageSize);
+  }, [filteredStudents, safePage, pageSize]);
+
+  const renderPagination = (itemName = "students") => {
+    if (totalFilteredCount === 0) return null;
+    return (
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-t border-slate-200 text-xs no-print bg-slate-50/50">
+        <div className="flex items-center gap-2 text-slate-500">
+          <span>Show</span>
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value));
+              setCurrentPage(1);
+            }}
+            className="bg-white border border-slate-200 rounded-lg px-2 py-1 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
+          >
+            <option value={10}>10</option>
+            <option value={15}>15</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+            <option value={9999}>All ({totalFilteredCount})</option>
+          </select>
+          <span>
+            per page • Showing <strong>{totalFilteredCount === 0 ? 0 : (safePage - 1) * pageSize + 1}</strong> to{" "}
+            <strong>{Math.min(safePage * pageSize, totalFilteredCount)}</strong> of{" "}
+            <strong>{totalFilteredCount}</strong> {itemName}
+          </span>
+        </div>
+
+        {totalPages > 1 && (
+          <div className="flex items-center gap-1.5 self-end sm:self-auto">
+            <button
+              type="button"
+              disabled={safePage <= 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition-colors"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" /> Previous
+            </button>
+
+            <div className="flex items-center gap-1">
+              {Array.from({ length: totalPages }).map((_, i) => {
+                const pNum = i + 1;
+                if (
+                  totalPages > 7 &&
+                  pNum !== 1 &&
+                  pNum !== totalPages &&
+                  Math.abs(pNum - safePage) > 1
+                ) {
+                  if (pNum === 2 || pNum === totalPages - 1) {
+                    return <span key={`ell-${pNum}`} className="px-1 text-slate-400">...</span>;
+                  }
+                  return null;
+                }
+
+                return (
+                  <button
+                    key={`pg-${pNum}`}
+                    type="button"
+                    onClick={() => setCurrentPage(pNum)}
+                    className={`min-w-[28px] h-7 rounded-lg text-xs font-bold transition-all ${
+                      safePage === pNum
+                        ? "bg-slate-900 text-white shadow-xs"
+                        : "border border-slate-200 bg-white hover:bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    {pNum}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              type="button"
+              disabled={safePage >= totalPages}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition-colors"
+            >
+              Next <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
 
   const handleCreateOrUpdateStudent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -330,7 +436,7 @@ export default function StudentsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredStudents.map((s) => (
+              {paginatedStudents.map((s) => (
                 <tr key={s.id} className="hover:bg-slate-50/80 transition-colors">
                   <td className="py-3 px-4 font-mono font-bold text-sky-700">
                     {s.studentNumber}
@@ -413,6 +519,8 @@ export default function StudentsPage() {
             No students found matching current filters.
           </div>
         )}
+
+        {renderPagination("students")}
       </div>
 
       {/* Add / Edit Student Modal */}
