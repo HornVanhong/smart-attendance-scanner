@@ -16,7 +16,12 @@ import {
   CheckCircle2,
   Clock,
   AlertTriangle,
+  FileSpreadsheet,
+  FileText,
 } from "lucide-react";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { AttendanceRecordModel, ClassModel, SubjectModel } from "@/lib/db-store";
 
 export default function AttendanceRecordsPage() {
@@ -28,6 +33,7 @@ export default function AttendanceRecordsPage() {
   // Filters
   const [search, setSearch] = useState("");
   const [selectedClass, setSelectedClass] = useState("ALL");
+  const [selectedSubject, setSelectedSubject] = useState("ALL");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
   const [selectedDate, setSelectedDate] = useState("");
 
@@ -98,12 +104,13 @@ export default function AttendanceRecordsPage() {
         (r.studentNumber && r.studentNumber.toLowerCase().includes(search.toLowerCase()));
 
       const matchClass = selectedClass === "ALL" || r.classId === selectedClass;
+      const matchSubject = selectedSubject === "ALL" || r.subjectId === selectedSubject;
       const matchStatus = selectedStatus === "ALL" || r.status === selectedStatus;
       const matchDate = selectedDate === "" || r.attendanceDate === selectedDate;
 
-      return matchSearch && matchClass && matchStatus && matchDate;
+      return matchSearch && matchClass && matchSubject && matchStatus && matchDate;
     });
-  }, [records, search, selectedClass, selectedStatus, selectedDate]);
+  }, [records, search, selectedClass, selectedSubject, selectedStatus, selectedDate]);
 
   const handleManualEntry = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -121,6 +128,103 @@ export default function AttendanceRecordsPage() {
     }
   };
 
+  const handleExportFilteredExcel = () => {
+    if (filteredRecords.length === 0) {
+      alert("No attendance records to export with current filters.");
+      return;
+    }
+    const exportDate = new Date().toISOString().split("T")[0];
+    const className = classes.find((c) => c.id === selectedClass)?.name || "All Classes";
+    const subjectName = subjects.find((s) => s.id === selectedSubject)?.name || "All Subjects";
+
+    const rows: any[][] = [
+      ["SMART ATTENDANCE MASTER LEDGER REPORT"],
+      [`ថ្នាក់ (Class): ${className}`, `មុខវិជ្ជា (Subject): ${subjectName}`, `កាលបរិច្ឆេទ: ${exportDate}`],
+      [`សរុបកំណត់ត្រា: ${filteredRecords.length}`],
+      [],
+      ["ល.រ (No.)", "កាលបរិច្ឆេទ (Date)", "ម៉ោង (Period)", "អត្តលេខ (ID)", "ឈ្មោះសិស្ស (Student Name)", "ថ្នាក់ (Class)", "មុខវិជ្ជា (Subject)", "និមិត្តសញ្ញា (Symbol)", "ស្ថានភាព (Status)", "ការផ្ទៀងផ្ទាត់ (Verification)"]
+    ];
+
+    filteredRecords.forEach((r, idx) => {
+      rows.push([
+        idx + 1,
+        r.attendanceDate,
+        `Period ${r.period}`,
+        r.studentNumber || "—",
+        r.studentName || "—",
+        r.className || "—",
+        r.subjectName || "—",
+        r.originalSymbol || "✓",
+        r.status === "PRESENT" ? "✓ វត្តមាន (Present)" : r.status === "ABSENT" ? "A ឈប់អត់ច្បាប់ (Absent)" : r.status === "EXCUSED" ? "P ឈប់មានច្បាប់ (Excused)" : "L មកយឺត (Late)",
+        r.isVerified ? "ផ្ទៀងផ្ទាត់រួច (Verified)" : "រង់ចាំពិនិត្យ (Pending)"
+      ]);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [
+      { wch: 8 },
+      { wch: 14 },
+      { wch: 12 },
+      { wch: 16 },
+      { wch: 28 },
+      { wch: 20 },
+      { wch: 22 },
+      { wch: 12 },
+      { wch: 24 },
+      { wch: 22 },
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Attendance Records");
+    XLSX.writeFile(wb, `Attendance_Ledger_${exportDate}.xlsx`);
+  };
+
+  const handleExportFilteredPDF = () => {
+    if (filteredRecords.length === 0) {
+      alert("No attendance records to export with current filters.");
+      return;
+    }
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const className = classes.find((c) => c.id === selectedClass)?.name || "All Classes";
+    const subjectName = subjects.find((s) => s.id === selectedSubject)?.name || "All Subjects";
+    const exportDate = new Date().toISOString().split("T")[0];
+
+    // Header
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, 210, 24, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text("SMART ATTENDANCE MASTER LEDGER", 14, 11);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(203, 213, 225);
+    doc.text(`Scope: ${className} | Subject: ${subjectName} | Generated: ${exportDate}`, 14, 18);
+
+    const tableData = filteredRecords.map((r, idx) => [
+      idx + 1,
+      r.attendanceDate,
+      `P${r.period}`,
+      r.studentNumber || "—",
+      r.studentName || "—",
+      r.subjectName || "—",
+      r.originalSymbol || "✓",
+      r.status,
+    ]);
+
+    autoTable(doc, {
+      startY: 30,
+      head: [["#", "Date", "Period", "ID", "Student Name", "Subject", "Mark", "Status"]],
+      body: tableData,
+      theme: "striped",
+      headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8 },
+      bodyStyles: { fontSize: 8 },
+      margin: { left: 14, right: 14 },
+    });
+
+    doc.save(`Attendance_Ledger_${exportDate}.pdf`);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -134,18 +238,33 @@ export default function AttendanceRecordsPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Quick Filtered Export Buttons */}
+          <button
+            onClick={handleExportFilteredPDF}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-xs font-bold transition-colors"
+            title="Export filtered records to PDF"
+          >
+            <FileText className="w-3.5 h-3.5 text-rose-600" /> Export PDF
+          </button>
+          <button
+            onClick={handleExportFilteredExcel}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold transition-colors"
+            title="Export filtered records to Excel"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" /> Export Excel
+          </button>
           <Link
             href="/scan"
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors"
           >
-            <FileCheck className="w-4 h-4 text-sky-600" /> Scan Attendance Sheet
+            <FileCheck className="w-3.5 h-3.5 text-sky-600" /> Scan Sheet
           </Link>
           <button
             onClick={() => setShowManualModal(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow-md shadow-sky-600/25 transition-colors"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow-md shadow-sky-600/25 transition-colors"
           >
-            <Plus className="w-4 h-4" /> Manual Record Entry
+            <Plus className="w-3.5 h-3.5" /> Manual Entry
           </button>
         </div>
       </div>
@@ -176,12 +295,26 @@ export default function AttendanceRecordsPage() {
           <select
             value={selectedClass}
             onChange={(e) => setSelectedClass(e.target.value)}
-            className="text-xs bg-slate-50 border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-sky-500"
+            className="text-xs bg-slate-50 border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
           >
-            <option value="ALL">All Classes</option>
+            <option value="ALL">All Classes (គ្រប់ថ្នាក់)</option>
             {classes.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
+              </option>
+            ))}
+          </select>
+
+          {/* Subject Filter */}
+          <select
+            value={selectedSubject}
+            onChange={(e) => setSelectedSubject(e.target.value)}
+            className="text-xs bg-slate-50 border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
+          >
+            <option value="ALL">All Subjects (គ្រប់មុខវិជ្ជា)</option>
+            {subjects.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.code})
               </option>
             ))}
           </select>

@@ -87,18 +87,23 @@ export async function GET(req: NextRequest) {
   const studentStats = students.map((st) => {
     const stRecs = records.filter((r) => r.studentId === st.id);
     const total = stRecs.length;
-    const present = stRecs.filter((r) => r.status === "PRESENT" || r.status === "LATE").length;
+    const present = stRecs.filter((r) => r.status === "PRESENT").length;
     const absent = stRecs.filter((r) => r.status === "ABSENT").length;
-    const rate = total > 0 ? Math.round((present / total) * 100) : 100;
+    const excused = stRecs.filter((r) => r.status === "EXCUSED").length;
+    const late = stRecs.filter((r) => r.status === "LATE").length;
+    const rate = total > 0 ? Math.round(((present + late) / total) * 100) : 100;
 
     return {
       studentId: st.id,
       studentName: st.fullName,
       studentNumber: st.studentNumber,
+      gender: st.gender || "M",
       className: st.class?.name || "Unassigned",
       totalSessions: total,
       presentCount: present,
       absentCount: absent,
+      excusedCount: excused,
+      lateCount: late,
       rate,
       isAlert: total > 0 && rate < 80,
     };
